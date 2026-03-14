@@ -1,7 +1,7 @@
 import os
 import tempfile
 import requests
-from config import BRAVE_PATH, BRAVE_USER_DATA
+from src.config import BRAVE_PATH, BRAVE_USER_DATA
 
 
 def download_image(url, filename):

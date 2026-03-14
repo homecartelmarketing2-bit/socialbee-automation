@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
-hiddenimports = ['tkcalendar', 'babel.numbers', 'PIL._tkinter_finder', 'config', 'airtable_client', 'caption', 'socialbee_poster', 'app_window']
+hiddenimports = ['tkcalendar', 'babel.numbers', 'PIL._tkinter_finder', 'src', 'src.config', 'src.airtable_client', 'src.caption', 'src.socialbee_poster', 'src.app_window']
 tmp_ret = collect_all('tkcalendar')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('babel')

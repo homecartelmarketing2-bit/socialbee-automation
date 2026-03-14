@@ -1,6 +1,6 @@
 import random
 import requests
-from config import AIRTABLE_FIELD_NAME, OPENROUTER_API_KEY, FALLBACK_MODELS, HOMECARTEL_FOOTER
+from src.config import AIRTABLE_FIELD_NAME, OPENROUTER_API_KEY, FALLBACK_MODELS, HOMECARTEL_FOOTER
 
 
 def generate_short_caption(image_info):

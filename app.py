@@ -1,4 +1,4 @@
-from app_window import ImageBrowser
+from src.app_window import ImageBrowser
 
 
 def main():

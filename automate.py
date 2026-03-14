@@ -9,12 +9,12 @@ Close Brave browser before running this script!
 import os
 import requests
 
-from config import (
+from src.config import (
     AIRTABLE_FIELD_NAME, OPENROUTER_API_KEY, OPENROUTER_MODEL,
     BRAVE_PATH, BRAVE_USER_DATA,
 )
-from airtable_client import fetch_all_records, extract_images
-from socialbee_poster import download_image
+from src.airtable_client import fetch_all_records, extract_images
+from src.socialbee_poster import download_image
 
 
 # ─── AI CAPTION (simpler prompt for CLI batch mode) ────────

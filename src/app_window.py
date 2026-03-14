@@ -9,10 +9,10 @@ from io import BytesIO
 from tkcalendar import DateEntry
 from datetime import date
 
-from config import APP_SOURCES, APP_FIELD_OPTIONS, VIDEO_EXTENSIONS
-from airtable_client import fetch_all_records_for_base
-from caption import generate_short_caption, get_item_names, compose_caption
-from socialbee_poster import post_to_socialbee
+from src.config import APP_SOURCES, APP_FIELD_OPTIONS, VIDEO_EXTENSIONS
+from src.airtable_client import fetch_all_records_for_base
+from src.caption import generate_short_caption, get_item_names, compose_caption
+from src.socialbee_poster import post_to_socialbee
 
 
 class ImageBrowser(tk.Tk):

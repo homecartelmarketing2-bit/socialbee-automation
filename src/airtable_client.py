@@ -1,5 +1,5 @@
 import requests
-from config import AIRTABLE_BASE_ID, AIRTABLE_TABLE_ID, AIRTABLE_FIELD_NAME, HEADERS, APP_TABLE_IDS
+from src.config import AIRTABLE_BASE_ID, AIRTABLE_TABLE_ID, AIRTABLE_FIELD_NAME, HEADERS, APP_TABLE_IDS
 
 
 def fetch_all_records():
