@@ -1,16 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('web', 'web'), ('config.json.example', '.')]
+datas = [('web', 'web')]
 binaries = []
-hiddenimports = [
-    'eel', 'bottle', 'bottle_websocket', 'gevent', 'geventwebsocket',
-    'src', 'src.config', 'src.airtable_client', 'src.caption',
-    'src.socialbee_poster', 'src.app_window', 'src.zoho_client',
-    'PIL', 'PIL._imaging',
-]
-
-# Collect eel's JS and internal files
+hiddenimports = ['eel', 'bottle', 'bottle_websocket', 'gevent', 'geventwebsocket', 'src', 'src.config', 'src.airtable_client', 'src.caption', 'src.socialbee_poster', 'PIL']
 tmp_ret = collect_all('eel')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
@@ -24,7 +17,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'tkcalendar'],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )
@@ -36,7 +29,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='SocialBee AutoPoster',
+    name='SocialBee AutoPoster v2',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

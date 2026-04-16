@@ -1,5 +1,6 @@
 # Secrets
 .env
+config.json
 
 # Python
 __pycache__/
@@ -12,6 +13,8 @@ venv/
 .venv/
 
 # Screenshots & temp files
+debug_screenshots/
+scratch/
 *.png
 *.jpg
 *.tmp

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SocialBee AutoPoster</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- LEFT PANEL -->
+    <div id="left-panel">
+
+      <!-- Source & Field selectors -->
+      <div id="selector-bar">
+        <div class="selector-row">
+          <label>Source:</label>
+          <select id="source-select"><option value="">-- Select Source --</option></select>
+          <button id="refresh-btn" title="Refresh cache">Refresh</button>
+        </div>
+        <div id="field-bar" class="selector-row hidden">
+          <label>Field:</label>
+          <select id="field-select"></select>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div id="progress-container" class="hidden">
+        <div id="progress-track">
+          <div id="progress-bar"></div>
+        </div>
+        <span id="progress-text">Loading...</span>
+      </div>
+
+      <!-- Top info bar -->
+      <div id="info-bar">
+        <span id="counter-label"></span>
+        <button id="grid-toggle-btn">Grid View</button>
+        <span id="filename-label"></span>
+      </div>
+
+      <!-- Single image view -->
+      <div id="single-view">
+        <div id="image-container">
+          <img id="main-image" src="" alt="" class="hidden">
+          <video id="main-video" controls class="hidden"></video>
+          <div id="paired-container" class="hidden">
+            <div class="pair-side">
+              <span class="pair-label" id="left-label"></span>
+              <img id="left-image" src="" alt="">
+              <video id="left-video" controls class="hidden"></video>
+            </div>
+            <div class="pair-divider"></div>
+            <div class="pair-side">
+              <span class="pair-label" id="right-label"></span>
+              <img id="right-image" src="" alt="">
+              <video id="right-video" controls class="hidden"></video>
+            </div>
+          </div>
+          <div id="triple-container" class="hidden">
+            <div class="pair-side">
+              <span class="pair-label" id="triple-left-label"></span>
+              <img id="triple-left-image" src="" alt="">
+            </div>
+            <div class="pair-divider"></div>
+            <div class="pair-side">
+              <span class="pair-label" id="triple-center-label"></span>
+              <img id="triple-center-image" src="" alt="">
+            </div>
+            <div class="pair-divider"></div>
+            <div class="pair-side">
+              <span class="pair-label" id="triple-right-label"></span>
+              <img id="triple-right-image" src="" alt="">
+            </div>
+          </div>
+          <!-- Badges overlay -->
+          <div id="badge-posted" class="badge badge-posted hidden">POSTED</div>
+          <div id="badge-disregard" class="badge badge-disregard hidden">DISREGARD</div>
+        </div>
+      </div>
+
+      <!-- Grid view -->
+      <div id="grid-view" class="hidden">
+        <div id="grid-container"></div>
+      </div>
+
+      <!-- Navigation -->
+      <div id="nav-bar">
+        <button id="prev-btn" class="nav-btn">&#9664; Prev</button>
+        <span id="status-label">Select a source to begin.</span>
+        <button id="next-btn" class="nav-btn">Next &#9654;</button>
+      </div>
+
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div id="right-panel">
+      <div id="right-scroll">
+
+        <div class="section">
+          <h3>Item Names</h3>
+          <p id="item-names" class="item-names-text">(navigate to a photo)</p>
+        </div>
+
+        <div class="section">
+          <button id="gen-caption-btn" class="action-btn green-btn">Generate Caption</button>
+        </div>
+
+        <div class="section">
+          <h3>Caption Preview</h3>
+          <textarea id="caption-text" rows="12" placeholder="Caption will appear here..."></textarea>
+        </div>
+
+        <div class="section">
+          <div class="form-row">
+            <label>Category:</label>
+            <select id="category-input">
+              <option value="Styled Photo">Styled Photo</option>
+              <option value="Blended Image">Blended Image</option>
+              <option value="Moodboard" selected>Moodboard</option>
+              <option value="Before and After">Before and After</option>
+              <option value="Style Feature">Style Feature</option>
+              <option value="Product Features">Product Features</option>
+              <option value="Collection Category">Collection Category</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>Schedule</h3>
+          <div class="form-row">
+            <label class="checkbox-label">
+              <input id="post-now-check" type="checkbox" checked>
+              Post now
+            </label>
+          </div>
+          <div id="schedule-controls" class="hidden">
+            <div class="form-row">
+              <label>Date:</label>
+              <input id="schedule-date" type="date">
+            </div>
+            <div class="form-row time-row">
+              <label>Time:</label>
+              <input id="schedule-hour" type="number" min="0" max="23" value="10" class="time-input">
+              <span class="time-sep">:</span>
+              <input id="schedule-minute" type="number" min="0" max="59" value="0" step="5" class="time-input">
+              <span class="hint">(24hr)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fixed bottom buttons -->
+      <div id="right-bottom">
+        <button id="post-btn" class="action-btn yellow-btn">Post to SocialBee</button>
+        <button id="post-story-btn" class="action-btn green-btn">Post to SocialBee Story</button>
+        <div class="setup-row">
+          <button id="setup-chrome-post-btn" class="action-btn secondary-btn">Setup Login (Chrome - Post)</button>
+          <button id="setup-chrome-story-btn" class="action-btn secondary-btn">Setup Login (Chrome - Story)</button>
+        </div>
+        <p id="post-status"></p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Preview Modal for paired items -->
+  <div id="preview-modal" class="hidden">
+    <div id="preview-backdrop"></div>
+    <div id="preview-content">
+      <div id="preview-header">
+        <h3 id="preview-title">Before + After Preview</h3>
+        <button id="preview-close">&times;</button>
+      </div>
+      <div id="preview-body">
+        <div class="preview-side">
+          <span class="preview-label" id="preview-left-label"></span>
+          <div class="preview-media" id="preview-left-media"></div>
+        </div>
+        <div class="preview-side" id="preview-center-side" class="hidden">
+          <span class="preview-label" id="preview-center-label"></span>
+          <div class="preview-media" id="preview-center-media"></div>
+        </div>
+        <div class="preview-side">
+          <span class="preview-label" id="preview-right-label"></span>
+          <div class="preview-media" id="preview-right-media"></div>
+        </div>
+      </div>
+      <div id="preview-info"></div>
+    </div>
+  </div>
+
+  <!-- Right-click context menu -->
+  <div id="context-menu" class="hidden">
+    <div id="ctx-disregard" class="ctx-item">Disregard</div>
+    <div id="ctx-undo-disregard" class="ctx-item">Undo Disregard</div>
+    <div class="ctx-divider"></div>
+    <div id="ctx-ig-story" class="ctx-item">Convert Image to Instagram Story</div>
+    <div id="ctx-wm-upper" class="ctx-item">Watermark In The Upper</div>
+    <div id="ctx-wm-lower" class="ctx-item">Watermark In The Lower</div>
+  </div>
+
+  <!-- Success toast -->
+  <div id="toast" class="hidden">
+    <div id="toast-icon">&#10003;</div>
+    <div id="toast-text"></div>
+  </div>
+
+  <script src="/eel.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
