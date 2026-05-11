@@ -2,211 +2,190 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SocialBee AutoPoster</title>
-  <link rel="stylesheet" href="css/style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Social Bee Automation V2.1</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=2026-04-29-tips-reels-01">
 </head>
 <body>
-  <div id="app">
-
-    <!-- LEFT PANEL -->
-    <div id="left-panel">
-
-      <!-- Source & Field selectors -->
-      <div id="selector-bar">
-        <div class="selector-row">
-          <label>Source:</label>
-          <select id="source-select"><option value="">-- Select Source --</option></select>
-          <button id="refresh-btn" title="Refresh cache">Refresh</button>
-        </div>
-        <div id="field-bar" class="selector-row hidden">
-          <label>Field:</label>
-          <select id="field-select"></select>
-        </div>
-      </div>
-
-      <!-- Progress bar -->
-      <div id="progress-container" class="hidden">
-        <div id="progress-track">
-          <div id="progress-bar"></div>
-        </div>
-        <span id="progress-text">Loading...</span>
-      </div>
-
-      <!-- Top info bar -->
-      <div id="info-bar">
-        <span id="counter-label"></span>
-        <button id="grid-toggle-btn">Grid View</button>
-        <span id="filename-label"></span>
-      </div>
-
-      <!-- Single image view -->
-      <div id="single-view">
-        <div id="image-container">
-          <img id="main-image" src="" alt="" class="hidden">
-          <video id="main-video" controls class="hidden"></video>
-          <div id="paired-container" class="hidden">
-            <div class="pair-side">
-              <span class="pair-label" id="left-label"></span>
-              <img id="left-image" src="" alt="">
-              <video id="left-video" controls class="hidden"></video>
+  <div class="app-frame">
+    <div class="archive-shell">
+      <header class="archive-header">
+        <div class="archive-brand">
+          <div>
+            <div class="headline-row">
+              <h1>Social Bee Automation V2.1</h1>
             </div>
-            <div class="pair-divider"></div>
-            <div class="pair-side">
-              <span class="pair-label" id="right-label"></span>
-              <img id="right-image" src="" alt="">
-              <video id="right-video" controls class="hidden"></video>
-            </div>
-          </div>
-          <div id="triple-container" class="hidden">
-            <div class="pair-side">
-              <span class="pair-label" id="triple-left-label"></span>
-              <img id="triple-left-image" src="" alt="">
-            </div>
-            <div class="pair-divider"></div>
-            <div class="pair-side">
-              <span class="pair-label" id="triple-center-label"></span>
-              <img id="triple-center-image" src="" alt="">
-            </div>
-            <div class="pair-divider"></div>
-            <div class="pair-side">
-              <span class="pair-label" id="triple-right-label"></span>
-              <img id="triple-right-image" src="" alt="">
-            </div>
-          </div>
-          <!-- Badges overlay -->
-          <div id="badge-posted" class="badge badge-posted hidden">POSTED</div>
-          <div id="badge-disregard" class="badge badge-disregard hidden">DISREGARD</div>
-        </div>
-      </div>
-
-      <!-- Grid view -->
-      <div id="grid-view" class="hidden">
-        <div id="grid-container"></div>
-      </div>
-
-      <!-- Navigation -->
-      <div id="nav-bar">
-        <button id="prev-btn" class="nav-btn">&#9664; Prev</button>
-        <span id="status-label">Select a source to begin.</span>
-        <button id="next-btn" class="nav-btn">Next &#9654;</button>
-      </div>
-
-    </div>
-
-    <!-- RIGHT PANEL -->
-    <div id="right-panel">
-      <div id="right-scroll">
-
-        <div class="section">
-          <h3>Item Names</h3>
-          <p id="item-names" class="item-names-text">(navigate to a photo)</p>
-        </div>
-
-        <div class="section">
-          <button id="gen-caption-btn" class="action-btn green-btn">Generate Caption</button>
-        </div>
-
-        <div class="section">
-          <h3>Caption Preview</h3>
-          <textarea id="caption-text" rows="12" placeholder="Caption will appear here..."></textarea>
-        </div>
-
-        <div class="section">
-          <div class="form-row">
-            <label>Category:</label>
-            <select id="category-input">
-              <option value="Styled Photo">Styled Photo</option>
-              <option value="Blended Image">Blended Image</option>
-              <option value="Moodboard" selected>Moodboard</option>
-              <option value="Before and After">Before and After</option>
-              <option value="Style Feature">Style Feature</option>
-              <option value="Product Features">Product Features</option>
-              <option value="Collection Category">Collection Category</option>
-            </select>
+            <p id="build-info" class="build-info">Runtime: checking build...</p>
           </div>
         </div>
+      </header>
 
-        <div class="section">
-          <h3>Schedule</h3>
-          <div class="form-row">
-            <label class="checkbox-label">
-              <input id="post-now-check" type="checkbox" checked>
-              Post now
-            </label>
-          </div>
-          <div id="schedule-controls" class="hidden">
-            <div class="form-row">
-              <label>Date:</label>
-              <input id="schedule-date" type="date">
-            </div>
-            <div class="form-row time-row">
-              <label>Time:</label>
-              <input id="schedule-hour" type="number" min="0" max="23" value="10" class="time-input">
-              <span class="time-sep">:</span>
-              <input id="schedule-minute" type="number" min="0" max="59" value="0" step="5" class="time-input">
-              <span class="hint">(24hr)</span>
+      <div class="workspace-grid">
+        <aside class="sidebar-panel">
+          <div class="sidebar-intro">
+            <p class="sidebar-label">Searchable Sidebar</p>
+            <div class="sidebar-copy">
+              <p>Folders and collection counts.</p>
+              <button id="refresh-btn" class="mini-button" type="button">Sync</button>
             </div>
           </div>
-        </div>
-      </div>
 
-      <!-- Fixed bottom buttons -->
-      <div id="right-bottom">
-        <button id="post-btn" class="action-btn yellow-btn">Post to SocialBee</button>
-        <button id="post-story-btn" class="action-btn green-btn">Post to SocialBee Story</button>
-        <div class="setup-row">
-          <button id="setup-chrome-post-btn" class="action-btn secondary-btn">Setup Login (Chrome - Post)</button>
-          <button id="setup-chrome-story-btn" class="action-btn secondary-btn">Setup Login (Chrome - Story)</button>
-        </div>
-        <p id="post-status"></p>
-      </div>
-    </div>
+          <div id="sidebar-sections" class="sidebar-sections"></div>
+        </aside>
 
-  </div>
+        <main class="content-panel">
+          <section class="collection-head">
+            <div>
+              <p class="eyebrow">Selected Collection</p>
+              <h2 id="collection-title">Blended Image</h2>
+              <p id="collection-description" class="collection-description">Composite stills and merged visual treatments.</p>
+            </div>
+            <div id="filter-bar" class="filter-bar"></div>
+          </section>
 
-  <!-- Preview Modal for paired items -->
-  <div id="preview-modal" class="hidden">
-    <div id="preview-backdrop"></div>
-    <div id="preview-content">
-      <div id="preview-header">
-        <h3 id="preview-title">Before + After Preview</h3>
-        <button id="preview-close">&times;</button>
+          <div id="gallery-meta" class="gallery-meta"></div>
+          <section id="gallery-area" class="gallery-area"></section>
+        </main>
+
+        <aside class="inspector-panel">
+          <div class="inspector-sticky">
+            <p class="eyebrow">Property Panel</p>
+            <h3>Draft Composer</h3>
+            <p class="inspector-copy">Use this placeholder panel to draft copy, pick a category, schedule the post, and send it to SocialBee even before media is attached.</p>
+
+            <div class="field-block">
+              <label>Item Names</label>
+              <div id="item-name-display" class="item-name-display empty" aria-live="polite">
+                <p class="item-name-placeholder">Right-click a photo to select it for posting.</p>
+              </div>
+              <p id="selection-meta" class="field-hint">No photo selected for posting.</p>
+            </div>
+
+            <div class="field-block">
+              <div class="field-row">
+                <label for="caption-text">Caption Preview</label>
+                <button id="gen-caption-btn" class="mini-accent-button" type="button">Generate Caption</button>
+              </div>
+              <textarea id="caption-text" rows="8" placeholder="Caption preview will appear here"></textarea>
+            </div>
+
+            <div class="field-block">
+              <label for="category-input">Category</label>
+              <select id="category-input">
+                <option value="Styled Photo">Styled Photo</option>
+                <option value="Blended Image">Blended Image</option>
+                <option value="Moodboard">Moodboard</option>
+                <option value="Before and After">Before and After</option>
+                <option value="Style Feature">Style Feature</option>
+                <option value="Product Features">Product Features</option>
+                <option value="Collection Category">Collection Category</option>
+              </select>
+            </div>
+
+            <div class="schedule-card">
+              <p class="schedule-label">Schedule</p>
+              <label class="check-row">
+                <input id="post-now-check" type="checkbox" checked>
+                <span>Post now</span>
+              </label>
+
+              <div id="schedule-controls" class="schedule-controls hidden">
+                <div class="field-block compact">
+                  <label for="schedule-date">Date</label>
+                  <div class="date-input-wrap">
+                    <input id="schedule-date" type="date">
+                    <button id="schedule-date-trigger" class="icon-button" type="button" aria-label="Open date picker">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                        <path d="M16 2v4M8 2v4M3 10h18"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="field-block compact">
+                  <label>Time</label>
+                  <div class="time-row">
+                    <input id="schedule-hour" type="number" min="0" max="23" value="10" class="time-input">
+                    <span class="time-sep">:</span>
+                    <input id="schedule-minute" type="number" min="0" max="59" step="5" value="00" class="time-input">
+                    <span class="time-hint">(24hr)</span>
+                  </div>
+                </div>
+
+                <p id="schedule-summary" class="field-hint">Scheduled for --/--/---- at --:--.</p>
+              </div>
+            </div>
+
+            <div class="action-stack">
+              <button id="post-btn" class="primary-action" type="button">Post To SocialBee</button>
+              <button id="post-story-btn" class="secondary-action" type="button">Post To SocialBee Story</button>
+            </div>
+
+            <p id="post-status" class="post-status"></p>
+          </div>
+        </aside>
       </div>
-      <div id="preview-body">
-        <div class="preview-side">
-          <span class="preview-label" id="preview-left-label"></span>
-          <div class="preview-media" id="preview-left-media"></div>
-        </div>
-        <div class="preview-side" id="preview-center-side" class="hidden">
-          <span class="preview-label" id="preview-center-label"></span>
-          <div class="preview-media" id="preview-center-media"></div>
-        </div>
-        <div class="preview-side">
-          <span class="preview-label" id="preview-right-label"></span>
-          <div class="preview-media" id="preview-right-media"></div>
-        </div>
-      </div>
-      <div id="preview-info"></div>
     </div>
   </div>
 
-  <!-- Right-click context menu -->
-  <div id="context-menu" class="hidden">
-    <div id="ctx-disregard" class="ctx-item">Disregard</div>
-    <div id="ctx-undo-disregard" class="ctx-item">Undo Disregard</div>
-    <div class="ctx-divider"></div>
-    <div id="ctx-ig-story" class="ctx-item">Convert Image to Instagram Story</div>
-    <div id="ctx-wm-upper" class="ctx-item">Watermark In The Upper</div>
-    <div id="ctx-wm-lower" class="ctx-item">Watermark In The Lower</div>
+  <div id="card-context-menu" class="card-context-menu hidden" aria-hidden="true">
+    <button id="card-context-post" class="card-context-button" type="button">Post it</button>
+    <button id="card-context-convert" class="card-context-button" type="button">Convert to Tips Reel</button>
+    <button id="card-context-disregard" class="card-context-button danger" type="button">Disregard</button>
   </div>
 
-  <!-- Success toast -->
-  <div id="toast" class="hidden">
-    <div id="toast-icon">&#10003;</div>
-    <div id="toast-text"></div>
+  <div id="preview-modal" class="preview-modal hidden" aria-hidden="true">
+    <div id="preview-backdrop" class="preview-backdrop"></div>
+    <section class="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title">
+      <div class="preview-topbar">
+        <div class="preview-copy">
+          <p class="eyebrow">Full Image Preview</p>
+          <h3 id="preview-title">Selected Image</h3>
+        </div>
+        <button id="preview-close" class="preview-close" type="button" aria-label="Close preview">Close</button>
+      </div>
+
+      <div class="preview-stage">
+        <button id="preview-prev" class="preview-nav preview-nav-left" type="button" aria-label="Previous image">&lsaquo;</button>
+        <div class="preview-image-shell">
+          <div id="preview-single-media" class="preview-single-media">
+            <img id="preview-image" class="preview-image" alt="Full image preview">
+            <video id="preview-video" class="preview-video hidden" controls playsinline muted preload="metadata" controlslist="nodownload"></video>
+          </div>
+          <div id="preview-pair-grid" class="preview-pair-grid hidden">
+            <article class="preview-pair-card">
+              <p id="preview-left-label" class="preview-pair-label">Before</p>
+              <img id="preview-left-image" class="preview-pair-image" alt="Preview left image">
+              <p id="preview-left-filename" class="preview-pair-filename"></p>
+            </article>
+            <article id="preview-center-card" class="preview-pair-card hidden">
+              <p id="preview-center-label" class="preview-pair-label">Center</p>
+              <img id="preview-center-image" class="preview-pair-image" alt="Preview center image">
+              <p id="preview-center-filename" class="preview-pair-filename"></p>
+            </article>
+            <article class="preview-pair-card">
+              <p id="preview-right-label" class="preview-pair-label">After</p>
+              <img id="preview-right-image" class="preview-pair-image" alt="Preview right image">
+              <p id="preview-right-filename" class="preview-pair-filename"></p>
+            </article>
+          </div>
+        </div>
+        <button id="preview-next" class="preview-nav preview-nav-right" type="button" aria-label="Next image">&rsaquo;</button>
+      </div>
+
+      <div class="preview-footer">
+        <p id="preview-filename" class="preview-filename">filename.jpg</p>
+        <button id="preview-download-btn" class="mini-button hidden" type="button" style="margin: 0 12px; background: var(--primary-fixed); color: var(--on-primary-fixed); border: none; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer;">Download Video</button>
+        <span id="preview-meta" class="preview-meta">1 / 1</span>
+      </div>
+    </section>
   </div>
 
   <script src="/eel.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=2026-04-29-tips-reels-03"></script>
 </body>
 </html>

@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "items": {
+    "0f87acf503b043b00d2313c3": {
+      "source_filename": "49aa7268ffffc416e6c85c2cacee366f_1776303350_mtdmba41.mp4",
+      "filename": "tips_reel_0f87acf503b043b00d2313c3_3d1dee37a3c9.mp4",
+      "status": "ready",
+      "updated_at": 1777440304.1602886,
+      "error": "",
+      "tip": "Let the fixture anchor the room mood",
+      "render_version": "3d1dee37a3c9",
+      "visual_source": "Blended Image"
+    },
+    "215969771af6bef340b7d29c": {
+      "source_count": 3,
+      "source_filenames": [
+        "881acb0302c2aa6d237fba681a78dd72_1_1777856103_3804.mp4",
+        "10374913abb645ef8bd806211ef855b3_1_1777863717_8562.mp4",
+        "38f61e59adf606d7cf76ac89bbaeb931_1_1777522462_8015.mp4"
+      ],
+      "status": "ready",
+      "updated_at": 1777968303.30117,
+      "error": "",
+      "tips": [
+        "Highlight green accents for a lively vibe in living spaces",
+        "Integrate warm glow with soft fabrics for coziness",
+        "Ceiling light anchors modern elegance"
+      ],
+      "visual_sources": [
+        "Blended Image",
+        "Blended Image",
+        "Blended Image"
+      ],
+      "voiceover_error": "Voiceover failed for one or more clips, rendering without that voiceover.",
+      "voiceover": true,
+      "tip": "Highlight green accents for a lively vibe in living spaces | Integrate warm glow with soft fabrics for coziness | Ceiling light anchors modern elegance",
+      "filename": "tips_reel_215969771af6bef340b7d29c_36d053856eb1.mp4",
+      "render_version": "36d053856eb1"
+    },
+    "360d25fa262f9fdce245dabb": {
+      "source_filename": "deaf66ddcb61ff7e33c8d588893f410d_1777279407_1lhdjt0w.mp4",
+      "filename": "tips_reel_360d25fa262f9fdce245dabb_3bd8ed333325.mp4",
+      "status": "error",
+      "updated_at": 1777511708.6861584,
+      "error": "LM Studio returned empty Tips Reel text. Retry after the model is ready.",
+      "tip": "Use negative space to let the design breathe",
+      "render_version": "3bd8ed333325",
+      "visual_source": "Blended Image"
+    },
+    "36f1add01d89d8d79de1ae1d": {
+      "source_count": 3,
+      "source_filenames": [
+        "df634282759d86f9a3620c41d9531597_1_1777426335_4967.mp4",
+        "43b2be6b2f8b0c3868b7713892f0cf2a_1776304545_7gv0m7a1.mp4",
+        "c6c223442081b0a9a75448950e29d8d1_1_1776659471_6814.mp4"
+      ],
+      "status": "ready",
+      "updated_at": 1777447400.7828882,
+      "error": "",
+      "tips": [
+        "Use layered lighting to create visual depth",
+        "Match warm illumination with natural room finishes",
+        "Balance statement pieces with quieter surrounding details"
+      ],
+      "visual_sources": [
+        "Blended Image",
+        "Blended Image",
+        "Blended Image"
+      ],
+      "tip": "Use layered lighting to create visual depth | Match warm illumination with natural room finishes | Balance statement pieces with quieter surrounding details",
+      "filename": "tips_reel_36f1add01d89d8d79de1ae1d_c36efab49b0e.mp4",
+      "render_version": "c36efab49b0e"
+    },
+    "608737f7ee6a596cf36cdd83": {
+      "source_filename": "df634282759d86f9a3620c41d9531597_1_1777426335_4967.mp4",
+      "status": "error",
+      "updated_at": 1777512057.8230443,
+      "error": "LM Studio returned empty Tips Reel text. Retry after the model is ready.",
+      "visual_source": "Blended Image"
+    },
+    "637048070fb6a7cf4760f292": {
+      "source_filename": "1c96e34cd43fc8c0181dcbbc702a56e2_1_1777428257_4899.mp4",
+      "status": "ready",
+      "updated_at": 1777447181.9190292,
+      "error": "",
+      "visual_source": "Blended Image",
+      "tip": "Style the focal piece with warm room balance",
+      "filename": "tips_reel_637048070fb6a7cf4760f292_f8e14072c69b.mp4",
+      "render_version": "f8e14072c69b"
+    },
+    "6c9e0695032217b536f78b2a": {
+      "source_filename": "43b2be6b2f8b0c3868b7713892f0cf2a_1776304545_7gv0m7a1.mp4",
+      "status": "error",
+      "updated_at": 1777515027.3635283,
+      "error": "Command '['C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\Lib\\\\site-packages\\\\imageio_ffmpeg\\\\binaries\\\\ffmpeg-win-x86_64-v7.1.exe', '-y', '-i', 'C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\tips_source_rbybcwnp.mp4', '-i', 'C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\tips_frames_yki7_rbm\\\\tips_voice_fkzc2f6w.mp3', '-filter_complex', \"[0:v]split=2[bgsrc][fgsrc];[bgsrc]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=32:2[bg];[fgsrc]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v0];[v0]drawtext=fontfile='C\\\\:/WINDOWS/Fonts/segoeuib.ttf':text='Add warmth with wood and':x=(w-text_w)/2:y=h*0.655-30+if(lt(t\\\\,0.72)\\\\,(0.72-t)*48\\\\,0):fontsize=46:fontcolor=white:borderw=3:bordercolor=black@0.42:shadowx=0:shadowy=4:shadowcolor=black@0.34:fix_bounds=1:enable=between(t\\\\,0.45\\\\,4.08):alpha=if(lt(t\\\\,0.72)\\\\,(t-0.45)/0.27\\\\,if(lt(t\\\\,3.25)\\\\,1\\\\,if(lt(t\\\\,4.08)\\\\,(4.08-t)/0.83\\\\,0)))[v1];[v1]drawtext=fontfile='C\\\\:/WINDOWS/Fonts/segoeuib.ttf':text='neutral textiles':x=(w-text_w)/2:y=h*0.655+30+if(lt(t\\\\,0.72)\\\\,(0.72-t)*48\\\\,0):fontsize=46:fontcolor=white:borderw=3:bordercolor=black@0.42:shadowx=0:shadowy=4:shadowcolor=black@0.34:fix_bounds=1:enable=between(t\\\\,0.45\\\\,4.08):alpha=if(lt(t\\\\,0.72)\\\\,(t-0.45)/0.27\\\\,if(lt(t\\\\,3.25)\\\\,1\\\\,if(lt(t\\\\,4.08)\\\\,(4.08-t)/0.83\\\\,0)))[v2]\", '-map', '[v2]', '-map', '1:a', '-r', '30', '-af', 'apad', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-shortest', 'C:\\\\Users\\\\User\\\\Desktop\\\\JC PROJECT\\\\sb-function\\\\data\\\\tips_reels\\\\tips_reel_6c9e0695032217b536f78b2a_3321289934ce.mp4.tmp.mp4']' timed out after 900 seconds",
+      "visual_source": "Blended Image",
+      "tip": "Add warmth with wood and neutral textiles"
+    },
+    "83d5df5fe5b4bcc67705ba13": {
+      "source_count": 3,
+      "source_filenames": [
+        "c16d52f76357731cb035c56188de31bc_1_1777527173_1336.mp4",
+        "9e245a10eac7c69d44d9ba94dac2b166_1_1777531136_5218.mp4",
+        "316874495ebc48234d379066e4f5af11_1_1777429638_4084.mp4"
+      ],
+      "status": "ready",
+      "updated_at": 1778215885.8941941,
+      "error": "",
+      "tips": [
+        "Soft glow of cluster pendant enhances dark walls",
+        "Balance modern glow with vintage patterns for contrast",
+        "Warm chandelier complements natural wood tones"
+      ],
+      "visual_sources": [
+        "Blended Image",
+        "Blended Image",
+        "Blended Image"
+      ],
+      "voiceover_error": "",
+      "voiceover": true,
+      "tip": "Soft glow of cluster pendant enhances dark walls | Balance modern glow with vintage patterns for contrast | Warm chandelier complements natural wood tones",
+      "filename": "tips_reel_83d5df5fe5b4bcc67705ba13_c776835f2e06.mp4",
+      "render_version": "c776835f2e06"
+    },
+    "a99c44c7aced5dae1fdd5110": {
+      "source_count": 3,
+      "source_filenames": [
+        "deaf66ddcb61ff7e33c8d588893f410d_1777279407_1lhdjt0w.mp4",
+        "49aa7268ffffc416e6c85c2cacee366f_1776303350_mtdmba41.mp4",
+        "1c96e34cd43fc8c0181dcbbc702a56e2_1_1777428257_4899.mp4"
+      ],
+      "status": "ready",
+      "updated_at": 1777449045.314066,
+      "error": "",
+      "tips": [
+        "Balance ceiling light with soft surrounding textures",
+        "Repeat natural textures for a cohesive room story",
+        "Highlight the fixture with calm neutral styling"
+      ],
+      "visual_sources": [
+        "Blended Image",
+        "Blended Image",
+        "Blended Image"
+      ],
+      "tip": "Balance ceiling light with soft surrounding textures | Repeat natural textures for a cohesive room story | Highlight the fixture with calm neutral styling",
+      "filename": "tips_reel_a99c44c7aced5dae1fdd5110_4a421c0cf1c3.mp4",
+      "render_version": "4a421c0cf1c3",
+      "voiceover": false
+    },
+    "e93139f4056e0074e47bc25e": {
+      "label": "Combined Tips Reel error at Writing AI tip clip 1/3",
+      "source_count": 3,
+      "source_filenames": [
+        "deaf66ddcb61ff7e33c8d588893f410d_1777279407_1lhdjt0w.mp4",
+        "881acb0302c2aa6d237fba681a78dd72_1_1777856103_3804.mp4",
+        "10374913abb645ef8bd806211ef855b3_1_1777863717_8562.mp4"
+      ],
+      "status": "error",
+      "updated_at": 1778215168.8082871,
+      "error": "LM Studio disconnected while generating a unique tip. Start LM Studio and retry this Tips Reel.",
+      "tips": [],
+      "visual_sources": [
+        "Blended Image"
+      ],
+      "voiceover_error": "",
+      "voiceover": false
+    }
+  }
+}

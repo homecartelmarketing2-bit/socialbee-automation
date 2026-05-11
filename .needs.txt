@@ -1,0 +1,9 @@
+- kunyare napost na sya dapat is mapupunta 
+- automation ng story
+- ilagay ren ang function ng collection category
+- ifix yung button kasi 'posting..." nakaganon lang wla nakalagay
+ilang percent na ganyan
+- may bug na pag sa feeds artwork creation, pag nagselect ng field tas nagselect ule, magloload ule 
+- may bug ren sa grid view 
+- dapat Kahit nagloloading mga photo nandon paren yung mak as posted para di malito yung user alin pipindutin nya alam nya ano number ang posted na tlaga
+- dapat lagyan ng disregard button pag yung mga photo is panget tas maguupdate sa airtable na, yung photo na yun is "Disregard" sa "Status" ko field kasi may "Status" doon tas naka dropd

@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import requests
 from src.config import BRAVE_PATH, BRAVE_USER_DATA, BRAVE_USER_DATA_AUTO, CHROME_PATH, CHROME_USER_DATA_STORY, CHROME_USER_DATA_POST
 
@@ -22,10 +23,271 @@ def download_image(url, filename):
     return tmp.name
 
 
+def _prepare_upload_file(url, filename, existing_local_path=None):
+    """Return a local file path to upload plus whether this helper created it."""
+    if existing_local_path:
+        return existing_local_path, False
+    return download_image(url, filename), True
+
+
 def _wait_for_save_confirmation(page):
     """Wait 60 seconds after saving to let SocialBee finish processing."""
     print("  Waiting 60 seconds for SocialBee to finish processing...")
     page.wait_for_timeout(60000)
+
+
+def _count_media_in_scope(scope):
+    """Return the visible media count inside a page/locator scope."""
+    selectors = (
+        ".post-media-item:visible, .media-preview-item:visible, .uploaded-media .media-item:visible, .post-media .media-item:visible",
+        ".uploaded-media video:visible, .uploaded-media img:visible, .post-media video:visible, .post-media img:visible",
+        "video[src]:visible",
+    )
+    for selector in selectors:
+        try:
+            count = scope.locator(selector).count()
+        except Exception:
+            continue
+        if count > 0:
+            return count
+    return 0
+
+
+def _is_add_media_prompt_visible(scope):
+    """Return True when a composer/variation scope shows an empty media prompt."""
+    selectors = (
+        "text=Add a photo or video",
+        "button:has-text('Add a photo or video')",
+    )
+    for selector in selectors:
+        try:
+            if scope.locator(selector).first.is_visible(timeout=750):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _composer_media_count(page):
+    """Return the visible media count in the active composer, using the first stable selector match."""
+    return _count_media_in_scope(page)
+
+
+def _find_remove_media_button(page):
+    """Return the first visible remove/delete button scoped to uploaded media."""
+    selectors = (
+        ".post-media-item button[aria-label*='Remove' i]:visible, .media-preview-item button[aria-label*='Remove' i]:visible, .uploaded-media .media-item button[aria-label*='Remove' i]:visible, .post-media .media-item button[aria-label*='Remove' i]:visible",
+        ".post-media-item button[title*='Remove' i]:visible, .media-preview-item button[title*='Remove' i]:visible, .uploaded-media .media-item button[title*='Remove' i]:visible, .post-media .media-item button[title*='Remove' i]:visible",
+        ".post-media-item button[aria-label*='Delete' i]:visible, .media-preview-item button[aria-label*='Delete' i]:visible, .uploaded-media .media-item button[aria-label*='Delete' i]:visible, .post-media .media-item button[aria-label*='Delete' i]:visible",
+        ".post-media-item button[title*='Delete' i]:visible, .media-preview-item button[title*='Delete' i]:visible, .uploaded-media .media-item button[title*='Delete' i]:visible, .post-media .media-item button[title*='Delete' i]:visible",
+        ".post-media-item button:has-text('Remove'):visible, .media-preview-item button:has-text('Remove'):visible, .uploaded-media .media-item button:has-text('Remove'):visible, .post-media .media-item button:has-text('Remove'):visible",
+    )
+    for selector in selectors:
+        locator = page.locator(selector).first
+        try:
+            if locator.is_visible(timeout=750):
+                return locator
+        except Exception:
+            pass
+    return None
+
+
+def _clear_existing_composer_media(page):
+    """Remove stale media from the active SocialBee composer before uploading a new selection."""
+    media_count = _composer_media_count(page)
+    if media_count <= 0:
+        if _is_add_media_prompt_visible(page):
+            print("  Composer media state is already clean")
+        return
+
+    print(f"  Clearing {media_count} stale media item(s) from the composer...")
+    for _ in range(8):
+        if media_count <= 0:
+            break
+        remove_button = _find_remove_media_button(page)
+        if remove_button is None:
+            raise RuntimeError(
+                f"Composer already contains {media_count} media item(s), but no remove button was found."
+            )
+        remove_button.click()
+        page.wait_for_timeout(1500)
+        refreshed = _composer_media_count(page)
+        if refreshed >= media_count:
+            page.wait_for_timeout(1500)
+            refreshed = _composer_media_count(page)
+        if refreshed >= media_count and refreshed > 0:
+            raise RuntimeError("Could not clear the existing SocialBee composer media.")
+        media_count = refreshed
+
+    final_count = _composer_media_count(page)
+    if final_count != 0:
+        raise RuntimeError(f"Composer still has {final_count} media item(s) after cleanup.")
+    print("  Composer media cleared")
+
+
+def _wait_for_exact_media_count(page, expected_count, timeout_ms=20000):
+    """Wait until the composer shows the expected number of attached media items."""
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    last_count = _composer_media_count(page)
+    while time.monotonic() < deadline:
+        last_count = _composer_media_count(page)
+        if last_count == expected_count:
+            return last_count
+        page.wait_for_timeout(500)
+    return last_count
+
+
+def _wait_for_scope_media(scope, minimum_count=1, timeout_ms=20000):
+    """Wait until a scoped composer/variation shows media attachments."""
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    last_count = _count_media_in_scope(scope)
+    while time.monotonic() < deadline:
+        last_count = _count_media_in_scope(scope)
+        if last_count >= minimum_count:
+            return last_count
+        time.sleep(0.5)
+    return last_count
+
+
+def _resolve_active_variation_scope(page, label=""):
+    """Find the currently expanded variation container using the visible post-type dropdown."""
+    dropdown = page.locator("button.share-location-button:visible").last
+    dropdown.wait_for(state="visible", timeout=8000)
+
+    candidates = (
+        "xpath=ancestor::*[.//input[@type='file'] and (.//*[contains(@class,'ql-editor')] or .//*[@contenteditable='true'])][1]",
+        "xpath=ancestor::*[.//input[@type='file']][1]",
+        "xpath=ancestor::*[.//*[contains(@class,'ql-editor')] or .//*[@contenteditable='true']][1]",
+    )
+    for selector in candidates:
+        try:
+            scope = dropdown.locator(selector).first
+            if scope.count() > 0:
+                return scope
+        except Exception:
+            pass
+
+    print(f"  [{label}] Variation scope fallback to page-level selectors")
+    return page
+
+
+def _get_scope_editor(scope, label=""):
+    """Return the editor for the active composer/variation scope."""
+    selectors = (
+        ".ql-editor:visible",
+        "[contenteditable='true']:visible",
+    )
+    for selector in selectors:
+        try:
+            editor = scope.locator(selector).last
+            if editor.count() > 0:
+                editor.wait_for(state="visible", timeout=5000)
+                return editor
+        except Exception:
+            pass
+    raise RuntimeError(f"[{label}] No visible editor found for the active variation.")
+
+
+def _get_scope_file_input(scope, label=""):
+    """Return the file input for the active composer/variation scope."""
+    try:
+        inputs = scope.locator("input[type='file']")
+        if inputs.count() > 0:
+            return inputs.last
+    except Exception:
+        pass
+    raise RuntimeError(f"[{label}] No file input found for the active variation.")
+
+
+def _read_editor_text(editor):
+    """Read current editor text safely."""
+    for reader in (editor.inner_text, editor.text_content):
+        try:
+            value = reader()
+        except Exception:
+            continue
+        if value is not None:
+            return str(value).strip()
+    return ""
+
+
+def _activate_variation(page, variant_index, platform_name, screenshot_dir=None):
+    """Expand a specific variation row and return its scoped container."""
+    print(f"  [{platform_name}] Activating variation row {variant_index}...")
+    rows = page.locator("[ng-click*='activateVariant']")
+    row = rows.nth(variant_index)
+    row.wait_for(state="visible", timeout=5000)
+    try:
+        row.scroll_into_view_if_needed()
+    except Exception:
+        pass
+    try:
+        row.click()
+    except Exception:
+        row.click(force=True)
+    page.wait_for_timeout(2500)
+    scope = _resolve_active_variation_scope(page, platform_name)
+    _get_scope_editor(scope, platform_name)
+    if screenshot_dir:
+        page.screenshot(path=os.path.join(screenshot_dir, f"variation_{platform_name.lower()}_active.png"))
+    return scope
+
+
+def _ensure_variation_caption_and_media(page, variant_index, platform_name, caption, upload_path, screenshot_dir=None):
+    """Ensure one active variation has the expected caption and media."""
+    scope = _activate_variation(page, variant_index, platform_name, screenshot_dir=screenshot_dir)
+    editor = _get_scope_editor(scope, platform_name)
+    editor_text = _read_editor_text(editor)
+    media_count = _count_media_in_scope(scope)
+    has_media = media_count > 0 and not _is_add_media_prompt_visible(scope)
+    print(
+        f"  [{platform_name}] Before fill: editor_chars={len(editor_text)} media_count={media_count} has_media={has_media}"
+    )
+
+    if not editor_text:
+        editor.click()
+        page.wait_for_timeout(300)
+        editor.fill(caption)
+        page.wait_for_timeout(500)
+        editor_text = _read_editor_text(editor)
+
+    if not has_media:
+        file_input = _get_scope_file_input(scope, platform_name)
+        file_input.set_input_files(upload_path)
+        page.wait_for_timeout(5000)
+        media_count = _wait_for_scope_media(scope, minimum_count=1)
+        has_media = media_count > 0
+
+    final_text = _read_editor_text(editor)
+    final_media_count = _count_media_in_scope(scope)
+    print(
+        f"  [{platform_name}] After fill: editor_chars={len(final_text)} media_count={final_media_count}"
+    )
+    if not final_text:
+        raise RuntimeError(f"[{platform_name}] Caption is still empty after variation fill.")
+    if final_media_count <= 0:
+        raise RuntimeError(f"[{platform_name}] Media is still missing after variation fill.")
+
+    if screenshot_dir:
+        page.screenshot(path=os.path.join(screenshot_dir, f"variation_{platform_name.lower()}_verified.png"))
+    return scope
+
+
+def _enable_tiktok_content_disclosure(scope, platform_name):
+    """Enable the TikTok content disclosure toggle when it is visible and inactive."""
+    try:
+        disclosure = scope.locator("[ng-click*='updateContentDisclosure']:visible").last
+        if disclosure.count() == 0 or not disclosure.is_visible(timeout=1500):
+            print(f"  [{platform_name}] Content disclosure toggle not visible")
+            return
+        classes = disclosure.get_attribute("class") or ""
+        if "inactive" in classes:
+            disclosure.click()
+            print(f"  [{platform_name}] Content disclosure enabled")
+        else:
+            print(f"  [{platform_name}] Content disclosure already active")
+    except Exception as exc:
+        print(f"  [{platform_name}] Content disclosure toggle skipped: {exc}")
 
 
 def post_to_socialbee_multiple(caption, image_urls, filenames, category, schedule_date, schedule_time, result_queue):
@@ -375,18 +637,18 @@ def post_to_socialbee_multiple(caption, image_urls, filenames, category, schedul
                 pass
 
 
-def post_to_socialbee(caption, image_url, filename, category, schedule_date, schedule_time, result_queue):
+def post_to_socialbee(caption, image_url, filename, category, schedule_date, schedule_time, result_queue, local_path=None):
     """Run the full SocialBee posting flow in a thread. Puts result in result_queue."""
     import traceback
-    local_path = None
+    upload_path = None
+    should_cleanup = False
 
     try:
         from playwright.sync_api import sync_playwright
 
-        # Download image first
-        print("[1/8] Downloading image...")
-        local_path = download_image(image_url, filename)
-        print(f"  Saved to: {local_path}")
+        print("[1/8] Preparing image...")
+        upload_path, should_cleanup = _prepare_upload_file(image_url, filename, existing_local_path=local_path)
+        print(f"  Using file: {upload_path}")
 
         with sync_playwright() as p:
             print("[2/8] Launching Chrome browser...")
@@ -480,7 +742,7 @@ def post_to_socialbee(caption, image_url, filename, category, schedule_date, sch
             # 6. Upload image BEFORE adding TikTok
             print("[7/8] Uploading image...")
             file_input = page.locator("input[type='file']").first
-            file_input.set_input_files(local_path)
+            file_input.set_input_files(upload_path)
             page.wait_for_timeout(5000)
             print("  Image uploaded")
 
@@ -522,14 +784,14 @@ def post_to_socialbee(caption, image_url, filename, category, schedule_date, sch
                         has_media = len(media_previews) > 0
 
                         if not editor_text or not has_media:
-                            print(f"  Variation [{i}] missing content (text={bool(editor_text)}, media={has_media}) — filling...")
+                            print(f"  Variation [{i}] missing content (text={bool(editor_text)}, media={has_media}) â€” filling...")
                             if not editor_text:
                                 var_editor.click()
                                 page.wait_for_timeout(300)
                                 var_editor.fill(caption)
                                 page.wait_for_timeout(500)
                             if not has_media:
-                                page.locator("input[type='file']").first.set_input_files(local_path)
+                                page.locator("input[type='file']").first.set_input_files(upload_path)
                                 page.wait_for_timeout(5000)
                             print(f"  Variation [{i}] filled!")
                         else:
@@ -693,17 +955,18 @@ def post_to_socialbee(caption, image_url, filename, category, schedule_date, sch
         result_queue.put(("error", str(e)))
 
     finally:
-        if local_path:
+        if upload_path and should_cleanup:
             try:
-                os.unlink(local_path)
+                os.unlink(upload_path)
             except Exception:
                 pass
 
 
-def _set_variation_post_type(page, post_type, screenshot_dir=None, label=""):
+def _set_variation_post_type(page, post_type, screenshot_dir=None, label="", scope=None):
     """Switch the visible variation's post type dropdown (Feed Post/Story/Reel)."""
     try:
-        dropdown_btn = page.locator("button.share-location-button:visible").first
+        target = scope if scope is not None else page
+        dropdown_btn = target.locator("button.share-location-button:visible").last
         if not dropdown_btn.is_visible(timeout=3000):
             print(f"  [{label}] No post-type dropdown visible — skipping")
             return
@@ -762,19 +1025,20 @@ def _activate_variant_and_set_story(page, variant_index, platform_name, screensh
     print(f"  [{platform_name}] Dropdown now says: '{new_text}'")
 
 
-def post_to_socialbee_story(caption, image_url, filename, category, schedule_date, schedule_time, result_queue):
+def post_to_socialbee_story(caption, image_url, filename, category, schedule_date, schedule_time, result_queue, local_path=None):
     """Post as Story to Facebook + Instagram on SocialBee (no TikTok). Uses Chrome."""
     import traceback
-    local_path = None
+    upload_path = None
+    should_cleanup = False
     screenshot_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "debug_screenshots")
     os.makedirs(screenshot_dir, exist_ok=True)
 
     try:
         from playwright.sync_api import sync_playwright
 
-        print("[1/8] Downloading image...")
-        local_path = download_image(image_url, filename)
-        print(f"  Saved to: {local_path}")
+        print("[1/8] Preparing image...")
+        upload_path, should_cleanup = _prepare_upload_file(image_url, filename, existing_local_path=local_path)
+        print(f"  Using file: {upload_path}")
 
         with sync_playwright() as p:
             print("[2/8] Launching Chrome browser...")
@@ -870,7 +1134,7 @@ def post_to_socialbee_story(caption, image_url, filename, category, schedule_dat
             # Upload image
             print("[7/8] Uploading image...")
             file_input = page.locator("input[type='file']").first
-            file_input.set_input_files(local_path)
+            file_input.set_input_files(upload_path)
             page.wait_for_timeout(5000)
             print("  Image uploaded")
             page.screenshot(path=os.path.join(screenshot_dir, "story_02_after_upload.png"))
@@ -1040,9 +1304,9 @@ def post_to_socialbee_story(caption, image_url, filename, category, schedule_dat
         result_queue.put(("error", str(e)))
 
     finally:
-        if local_path:
+        if upload_path and should_cleanup:
             try:
-                os.unlink(local_path)
+                os.unlink(upload_path)
             except Exception:
                 pass
 

@@ -3,3 +3,5 @@ python-dotenv>=1.0.0
 playwright>=1.40.0
 Eel>=0.16.0
 Pillow>=10.0.0
+imageio>=2.37.0
+imageio-ffmpeg>=0.6.0
