@@ -30,3 +30,9 @@ scratch/
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# Browser Profiles and Uploads
+data/chrome_profile_*/
+data/tips_reels/
+data/tips_reel_uploads/
+data/local_uploads/

@@ -35,6 +35,7 @@ from src.airtable_client import (
 from src.caption import (
     generate_short_caption,
     generate_local_image_caption,
+    generate_lmstudio_visual_caption,
     generate_video_tip_from_frames,
     get_item_names,
     compose_caption,
@@ -63,6 +64,8 @@ _local_upload_manifest_path = os.path.join(_app_root, "data", "local_upload_mani
 _disregard_manifest_path = os.path.join(_app_root, "data", "disregard_manifest.json")
 _tips_reel_root = os.path.join(_app_root, "data", "tips_reels")
 _tips_reel_manifest_path = os.path.join(_app_root, "data", "tips_reel_manifest.json")
+_tips_reel_upload_root = os.path.join(_app_root, "data", "tips_reel_uploads")
+_tips_reel_upload_manifest_path = os.path.join(_app_root, "data", "tips_reel_upload_manifest.json")
 _local_uploads = {}
 _local_upload_lists = {}
 _local_uploads_lock = threading.Lock()
@@ -70,6 +73,10 @@ _disregard_state = {}
 _disregard_lock = threading.Lock()
 _tips_reel_state = {}
 _tips_reel_lock = threading.Lock()
+_tips_reel_uploads = {}
+_tips_reel_upload_list = []
+_tips_reel_uploads_lock = threading.Lock()
+_eel_lock = threading.Lock()
 
 
 _LOCAL_UPLOAD_FIELDS = (COLLECTION_CATEGORY_FIELD, TIPS_EDU_FIELD, QUOTES_PHOTOS_FIELD)
@@ -83,6 +90,7 @@ _TIPS_REEL_COMBO_TYPE = "tips_combo"
 
 os.makedirs(_local_upload_root, exist_ok=True)
 os.makedirs(_tips_reel_root, exist_ok=True)
+os.makedirs(_tips_reel_upload_root, exist_ok=True)
 for _field_dir in _LOCAL_UPLOAD_FIELD_DIRS.values():
     os.makedirs(os.path.join(_local_upload_root, _field_dir), exist_ok=True)
 
@@ -497,7 +505,8 @@ def _serialize_tips_reel_status_for_item(img_data):
 def _emit_tips_reel_status(index, session_id, img_data, status_payload):
     """Notify the frontend about one Tips Reel status update."""
     try:
-        eel.on_tips_reel_status(index, session_id, status_payload)
+        with _eel_lock:
+            eel.on_tips_reel_status(index, session_id, status_payload)
     except Exception as exc:
         print(f"Tips Reel status emit warning: {exc}")
 
@@ -505,7 +514,8 @@ def _emit_tips_reel_status(index, session_id, img_data, status_payload):
 def _emit_combined_tips_reel_status(session_id, combo_item):
     """Notify the frontend about a combined Tips Reel item update."""
     try:
-        eel.on_combined_tips_reel_status(session_id, _serialize_one(combo_item))
+        with _eel_lock:
+            eel.on_combined_tips_reel_status(session_id, _serialize_one(combo_item))
     except Exception as exc:
         print(f"Combined Tips Reel status emit warning: {exc}")
 
@@ -520,14 +530,19 @@ def _build_disregard_key(img_data, category_id):
     filename = lambda value: os.path.basename(str(value or "").strip())
 
     if img_type == "pair":
-        left_name = filename((img_data.get("left") or {}).get("filename")) or "-"
-        right_name = filename((img_data.get("right") or {}).get("filename")) or "-"
+        left_data = img_data.get("left") or {}
+        right_data = img_data.get("right") or {}
+        left_name = filename(left_data.get("filename")) or "-"
+        right_name = filename(right_data.get("filename")) or "-"
         return f"{category_id}|{record_id}|pair|{left_name}|{right_name}"
 
     if img_type == "triple":
-        left_name = filename((img_data.get("left") or {}).get("filename")) or "-"
-        center_name = filename((img_data.get("center") or {}).get("filename")) or "-"
-        right_name = filename((img_data.get("right") or {}).get("filename")) or "-"
+        left_data = img_data.get("left") or {}
+        center_data = img_data.get("center") or {}
+        right_data = img_data.get("right") or {}
+        left_name = filename(left_data.get("filename")) or "-"
+        center_name = filename(center_data.get("filename")) or "-"
+        right_name = filename(right_data.get("filename")) or "-"
         return f"{category_id}|{record_id}|triple|{left_name}|{center_name}|{right_name}"
 
     if img_type == "zoho":
@@ -1339,9 +1354,110 @@ def _update_local_upload_fields(upload_id, fields):
         return True
 
 
+# ── Tips Reel Video Upload persistence ──
+
+def _save_tips_reel_upload_manifest_unlocked():
+    """Persist the tips reel upload manifest. Caller must hold _tips_reel_uploads_lock."""
+    os.makedirs(os.path.dirname(_tips_reel_upload_manifest_path), exist_ok=True)
+    payload = {
+        "version": 1,
+        "items": [
+            {
+                "upload_id": entry["upload_id"],
+                "filename": entry["filename"],
+                "stored_name": entry["stored_name"],
+                "category_id": entry.get("category_id", "tips-reels"),
+                "fields": dict(entry.get("fields", {})),
+            }
+            for entry in _tips_reel_upload_list
+        ],
+    }
+    with open(_tips_reel_upload_manifest_path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=True, indent=2)
+
+
+def _load_tips_reel_upload_manifest():
+    """Restore persisted tips reel video uploads on startup."""
+    data = {}
+    try:
+        if os.path.exists(_tips_reel_upload_manifest_path):
+            with open(_tips_reel_upload_manifest_path, "r", encoding="utf-8-sig") as fh:
+                data = json.load(fh) or {}
+    except Exception as exc:
+        print(f"Tips reel upload manifest load warning: {exc}")
+        data = {}
+
+    raw_items = data.get("items", []) if isinstance(data, dict) else []
+    changed = False
+
+    with _tips_reel_uploads_lock:
+        _tips_reel_upload_list.clear()
+        _tips_reel_uploads.clear()
+        if not isinstance(raw_items, list):
+            raw_items = []
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                changed = True
+                continue
+            upload_id = str(raw.get("upload_id") or "").strip()
+            filename = os.path.basename(str(raw.get("filename") or "").strip())
+            stored_name = os.path.basename(str(raw.get("stored_name") or "").strip())
+            category_id = str(raw.get("category_id") or "tips-reels").strip()
+            if not upload_id or not filename or not stored_name:
+                changed = True
+                continue
+            file_path = os.path.join(_tips_reel_upload_root, stored_name)
+            if not os.path.exists(file_path):
+                changed = True
+                continue
+            entry = {
+                "upload_id": upload_id,
+                "filename": filename,
+                "stored_name": stored_name,
+                "category_id": category_id,
+                "fields": dict(raw.get("fields") or {}),
+                "path": file_path,
+            }
+            _tips_reel_upload_list.append(entry)
+            _tips_reel_uploads[upload_id] = entry
+        if changed:
+            _save_tips_reel_upload_manifest_unlocked()
+
+
+def _build_tips_reel_upload_item(entry):
+    """Create a media item from a persisted tips reel video upload entry."""
+    upload_id = entry["upload_id"]
+    return {
+        "type": "single",
+        "url": f"/tips_reel_upload/{upload_id}",
+        "thumb_url": f"/tips_reel_upload/{upload_id}",
+        "filename": entry["filename"],
+        "fields": dict(entry.get("fields", {})),
+        "tips_reel_upload": True,
+        "local_upload": False,
+        "local_path": entry.get("path", ""),
+        "upload_id": upload_id,
+        "record_id": None,
+        "base_id": None,
+        "table_id": None,
+        "source_field": None,
+        "category_id": entry.get("category_id", "tips-reels"),
+    }
+
+
+def _list_tips_reel_upload_items(category_id=None):
+    """Return queued video uploads, optionally filtered by category."""
+    with _tips_reel_uploads_lock:
+        entries = list(_tips_reel_upload_list)
+    if category_id:
+        entries = [e for e in entries if e.get("category_id") == category_id]
+    return [_build_tips_reel_upload_item(entry) for entry in entries]
+
+
 _load_local_upload_manifest()
 _load_disregard_manifest()
 _load_tips_reel_manifest()
+_load_tips_reel_upload_manifest()
 
 
 @eel.expose
@@ -1475,6 +1591,140 @@ def serve_local_upload(upload_id):
     return bottle.static_file(os.path.basename(file_path), root=os.path.dirname(file_path))
 
 
+@bottle.post('/tips_reel_upload_video')
+def tips_reel_upload_video():
+    """Accept a single uploaded video and persist it for Tips Reel / Styled Reel use."""
+    upload = bottle.request.files.get("video")
+    if not upload or not upload.filename:
+        bottle.response.status = 400
+        bottle.response.content_type = "application/json"
+        return json.dumps({"ok": False, "error": "No video was uploaded."})
+
+    filename = os.path.basename(upload.filename)
+    _, ext = os.path.splitext(filename)
+    ext = ext.lower()
+    if ext not in VIDEO_EXTENSIONS:
+        bottle.response.status = 400
+        bottle.response.content_type = "application/json"
+        return json.dumps({"ok": False, "error": f"Unsupported video format '{ext}'. Use .mp4, .mov, .avi, .mkv, .webm, or .m4v."})
+
+    upload_id = uuid.uuid4().hex
+    safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in filename)
+    if not safe_name:
+        safe_name = f"upload{ext or '.mp4'}"
+    category_id = bottle.request.forms.get("category_id") or "tips-reels"
+    session_id = bottle.request.forms.get("session_id") or None
+    stored_name = f"{upload_id}_{safe_name}"
+    file_path = os.path.join(_tips_reel_upload_root, stored_name)
+    upload.save(file_path, overwrite=True)
+
+    entry = {
+        "upload_id": upload_id,
+        "filename": filename,
+        "stored_name": stored_name,
+        "category_id": category_id,
+        "fields": {},
+        "path": file_path,
+    }
+
+    with _tips_reel_uploads_lock:
+        _tips_reel_upload_list.append(entry)
+        _tips_reel_uploads[upload_id] = entry
+        _save_tips_reel_upload_manifest_unlocked()
+
+    item = _build_tips_reel_upload_item(entry)
+
+    # Register the item in the backend fetch session so post_to_sb can resolve it
+    if session_id:
+        session = _get_fetch_session(session_id)
+        if session:
+            _append_fetch_session_images(session_id, [item])
+        else:
+            _set_fetch_session(session_id, {
+                "images": [item],
+                "base_id": None,
+                "cache_key": f"upload:{category_id}",
+                "field_name": None,
+                "paired_fields": None,
+                "triple_fields": None,
+                "zoho_folder_id": None,
+                "source_field": None,
+                "category_id": category_id,
+            })
+
+    bottle.response.content_type = "application/json"
+    return json.dumps({"ok": True, "item": _serialize_one(item)})
+
+
+@bottle.get('/tips_reel_upload/<upload_id>')
+def serve_tips_reel_upload(upload_id):
+    """Serve a previously uploaded video back to the browser."""
+    with _tips_reel_uploads_lock:
+        info = _tips_reel_uploads.get(upload_id)
+    if not info:
+        return bottle.HTTPError(404, "Upload not found.")
+
+    file_path = info.get("path")
+    if not file_path or not os.path.exists(file_path):
+        with _tips_reel_uploads_lock:
+            _tips_reel_uploads.pop(upload_id, None)
+            _tips_reel_upload_list[:] = [
+                item for item in _tips_reel_upload_list if item["upload_id"] != upload_id
+            ]
+            _save_tips_reel_upload_manifest_unlocked()
+        return bottle.HTTPError(404, "Upload not found.")
+
+    bottle.response.set_header("Cache-Control", "no-store")
+    return bottle.static_file(os.path.basename(file_path), root=os.path.dirname(file_path))
+
+
+@eel.expose
+def get_tips_reel_uploads(session_id=None):
+    """Return persisted video uploads for the tips reel categories."""
+    category_id = _category_id_from_session_id(session_id)
+    items = _list_tips_reel_upload_items(category_id)
+
+    # Append uploaded items to the backend fetch session so post_to_sb can resolve them
+    if session_id and items:
+        session = _get_fetch_session(session_id)
+        if session:
+            existing_ids = {
+                img.get("upload_id") for img in session.get("images", []) if img.get("upload_id")
+            }
+            new_items = [item for item in items if item.get("upload_id") not in existing_ids]
+            if new_items:
+                _append_fetch_session_images(session_id, new_items)
+
+    return _serialize_images(items)
+
+
+@eel.expose
+def delete_tips_reel_upload(upload_id, session_id=None):
+    """Delete a persisted tips reel video upload."""
+    removed_path = None
+    removed = False
+
+    with _tips_reel_uploads_lock:
+        entry = _tips_reel_uploads.pop(upload_id, None)
+        if entry:
+            removed = True
+            removed_path = entry.get("path")
+            _tips_reel_upload_list[:] = [
+                item for item in _tips_reel_upload_list if item["upload_id"] != upload_id
+            ]
+            _save_tips_reel_upload_manifest_unlocked()
+
+    if removed_path and os.path.exists(removed_path):
+        try:
+            os.unlink(removed_path)
+        except Exception as exc:
+            print(f"Tips reel upload delete warning ({removed_path}): {exc}")
+
+    if not removed:
+        return {"ok": False, "error": "Upload not found."}
+    return {"ok": True}
+
+
 @eel.expose
 def fetch_images(base_id, field_name=None, paired_fields=None, triple_fields=None, zoho_folder_id=None, session_id=None):
     """Start background Airtable fetch. Calls JS callbacks with progress and results."""
@@ -1506,7 +1756,8 @@ def fetch_images(base_id, field_name=None, paired_fields=None, triple_fields=Non
         try:
             def progress(done, total, count):
                 try:
-                    eel.on_fetch_progress(done, total, count, session_id)
+                    with _eel_lock:
+                        eel.on_fetch_progress(done, total, count, session_id)
                 except Exception:
                     pass
 
@@ -1514,7 +1765,8 @@ def fetch_images(base_id, field_name=None, paired_fields=None, triple_fields=Non
                 _apply_disregard_flags(items, category_id)
                 _append_fetch_session_images(session_id, items)
                 try:
-                    eel.on_images_appended(_serialize_images(items), session_id)
+                    with _eel_lock:
+                        eel.on_images_appended(_serialize_images(items), session_id)
                 except Exception as e:
                     print(f"Batch emit warning: {e}")
 
@@ -1525,23 +1777,27 @@ def fetch_images(base_id, field_name=None, paired_fields=None, triple_fields=Non
                 headers = {"Authorization": f"Zoho-oauthtoken {token}"}
                 resp = requests.get(url, headers=headers)
                 resp.raise_for_status()
-                zoho_files = resp.json().get("data", [])
+                zoho_files = resp.json().get("data") or []
 
                 # 2. Index folder files. If a filename starts with an Airtable
                 # record id, we can still enrich it with Airtable metadata.
                 zoho_entries = []
                 record_id_to_zoho = {}
                 for zf in zoho_files:
+                    if not isinstance(zf, dict):
+                        continue
                     name = zf.get("attributes", {}).get("name", "")
                     ext = os.path.splitext(name)[1].lower()
                     if ext and ext not in VIDEO_EXTENSIONS:
                         continue
 
                     entry = {
-                        "file_id": zf["id"],
+                        "file_id": zf.get("id"),
                         "filename": name,
-                        "url": f"/zoho_video/{zf['id']}",
+                        "url": f"/zoho_video/{zf.get('id')}",
                     }
+                    if not entry["file_id"]:
+                        continue
                     zoho_entries.append(entry)
 
                     parts = name.split('_', 1)
@@ -1613,14 +1869,25 @@ def fetch_images(base_id, field_name=None, paired_fields=None, triple_fields=Non
             # but this way order matches what gets cached).
             _apply_disregard_flags(records, category_id)
             _update_fetch_session_images(session_id, records)
+            
+            # Stream cached results in chunks for instant feedback
+            chunk_size = 50
+            for i in range(0, len(records), chunk_size):
+                chunk = records[i:i+chunk_size]
+                with _eel_lock:
+                    eel.on_images_appended(_serialize_images(chunk), session_id)
+
+            # Signal loaded (finalizes state and ensures UI is in sync)
             data = _serialize_images(records)
-            eel.on_images_loaded(data, session_id)
+            with _eel_lock:
+                eel.on_images_loaded(data, session_id)
 
         except Exception as e:
             print(f"Fetch error: {e}")
             traceback.print_exc()
             try:
-                eel.on_fetch_error(str(e), session_id)
+                with _eel_lock:
+                    eel.on_fetch_error(str(e), session_id)
             except Exception:
                 pass
 
@@ -1629,75 +1896,87 @@ def fetch_images(base_id, field_name=None, paired_fields=None, triple_fields=Non
 
 def _serialize_one(img):
     """Convert a single image dict to a JSON-safe shape."""
-    d = {}
-    if img.get("type") == "triple":
-        d["type"] = "triple"
-        d["left"] = {
-            "url": img["left"]["url"],
-            "thumb_url": img["left"].get("thumb_url", img["left"]["url"]),
-            "filename": img["left"]["filename"],
-            "label": img["left"].get("label", "Blended Image"),
-        }
-        d["center"] = {
-            "url": img["center"]["url"],
-            "thumb_url": img["center"].get("thumb_url", img["center"]["url"]),
-            "filename": img["center"]["filename"],
-            "label": img["center"].get("label", "Closeup Photo One"),
-        }
-        d["right"] = {
-            "url": img["right"]["url"],
-            "thumb_url": img["right"].get("thumb_url", img["right"]["url"]),
-            "filename": img["right"]["filename"],
-            "label": img["right"].get("label", "Closeup Photo Two"),
-        }
-    elif img.get("type") == _TIPS_REEL_COMBO_TYPE:
-        d["type"] = _TIPS_REEL_COMBO_TYPE
-        d["url"] = img.get("url") or ""
-        d["thumb_url"] = img.get("thumb_url") or img.get("url") or ""
-        d["filename"] = img.get("filename") or "combined_tips_reel.mp4"
-        d["combo_key"] = img.get("combo_key")
-        d["source_indices"] = list(img.get("source_indices") or [])
-        d["source_count"] = int(img.get("source_count") or len(img.get("source_items") or []) or 3)
-    elif img.get("type") == "zoho":
-        d["type"] = "zoho"
-        d["url"] = img["url"]
-        d["thumb_url"] = img.get("thumb_url", img["url"])
-        d["filename"] = img["filename"]
-    elif img.get("type") == "pair":
-        d["type"] = "pair"
-        d["left"] = {
-            "url": img["left"]["url"],
-            "thumb_url": img["left"].get("thumb_url", img["left"]["url"]),
-            "filename": img["left"]["filename"],
-            "label": img["left"].get("label", "Before"),
-        }
-        d["right"] = {
-            "url": img["right"]["url"],
-            "thumb_url": img["right"].get("thumb_url", img["right"]["url"]),
-            "filename": img["right"]["filename"],
-            "label": img["right"].get("label", "After"),
-        }
-    else:
-        d["type"] = "single"
-        d["url"] = img["url"]
-        d["thumb_url"] = img.get("thumb_url", img["url"])
-        d["filename"] = img["filename"]
+    try:
+        if not isinstance(img, dict):
+            return None
+            
+        d = {}
+        if img.get("type") == "triple":
+            d["type"] = "triple"
+            d["left"] = {
+                "url": img["left"]["url"],
+                "thumb_url": img["left"].get("thumb_url", img["left"]["url"]),
+                "filename": img["left"]["filename"],
+                "label": img["left"].get("label", "Blended Image"),
+            }
+            d["center"] = {
+                "url": img["center"]["url"],
+                "thumb_url": img["center"].get("thumb_url", img["center"]["url"]),
+                "filename": img["center"]["filename"],
+                "label": img["center"].get("label", "Closeup Photo One"),
+            }
+            d["right"] = {
+                "url": img["right"]["url"],
+                "thumb_url": img["right"].get("thumb_url", img["right"]["url"]),
+                "filename": img["right"]["filename"],
+                "label": img["right"].get("label", "Closeup Photo Two"),
+            }
+        elif img.get("type") == _TIPS_REEL_COMBO_TYPE:
+            d["type"] = _TIPS_REEL_COMBO_TYPE
+            d["url"] = img.get("url") or ""
+            d["thumb_url"] = img.get("thumb_url") or img.get("url") or ""
+            d["filename"] = img.get("filename") or "combined_tips_reel.mp4"
+            d["combo_key"] = img.get("combo_key")
+            d["source_indices"] = list(img.get("source_indices") or [])
+            d["source_count"] = int(img.get("source_count") or len(img.get("source_items") or []) or 3)
+        elif img.get("type") == "zoho":
+            d["type"] = "zoho"
+            d["url"] = img["url"]
+            d["thumb_url"] = img.get("thumb_url", img["url"])
+            d["filename"] = img["filename"]
+        elif img.get("type") == "pair":
+            d["type"] = "pair"
+            d["left"] = {
+                "url": img["left"]["url"],
+                "thumb_url": img["left"].get("thumb_url", img["left"]["url"]),
+                "filename": img["left"]["filename"],
+                "label": img["left"].get("label", "Before"),
+            }
+            d["right"] = {
+                "url": img["right"]["url"],
+                "thumb_url": img["right"].get("thumb_url", img["right"]["url"]),
+                "filename": img["right"]["filename"],
+                "label": img["right"].get("label", "After"),
+            }
+        else:
+            # SINGLE image
+            d["type"] = "single"
+            d["url"] = img["url"]
+            d["thumb_url"] = img.get("thumb_url", img["url"])
+            d["filename"] = img["filename"]
 
-    d["fields"] = img.get("fields", {})
-    d["local_upload"] = bool(img.get("local_upload"))
-    d["upload_id"] = img.get("upload_id")
-    d["record_id"] = img.get("record_id")
-    d["base_id"] = img.get("base_id")
-    d["table_id"] = img.get("table_id")
-    d["file_id"] = img.get("file_id")
-    d["source_field"] = img.get("source_field")
-    d["tips_reel"] = _serialize_tips_reel_status_for_item(img)
-    return d
+        d["fields"] = img.get("fields", {})
+        d["local_upload"] = bool(img.get("local_upload"))
+        d["upload_id"] = img.get("upload_id")
+        d["record_id"] = img.get("record_id")
+        d["base_id"] = img.get("base_id")
+        d["table_id"] = img.get("table_id")
+        d["file_id"] = img.get("file_id")
+        d["source_field"] = img.get("source_field")
+        d["tips_reel_upload"] = bool(img.get("tips_reel_upload"))
+        d["tips_reel"] = _serialize_tips_reel_status_for_item(img)
+        return d
+    except Exception as e:
+        print(f"  Warning: could not serialize item: {e}")
+        return None
 
 
 def _serialize_images(images):
     """Convert image list to JSON-safe dicts."""
-    return [_serialize_one(img) for img in images]
+    if not images:
+        return []
+    serialized = [_serialize_one(img) for img in images]
+    return [s for s in serialized if s is not None]
 
 
 @eel.expose
@@ -1721,6 +2000,61 @@ def get_item_names_for_index(index):
     return get_item_names(fields)
 
 
+def _caption_text_context_from_fields(fields):
+    """Build compact non-attachment text context for LM Studio captions."""
+    if not isinstance(fields, dict):
+        return ""
+
+    context_parts = []
+    for key, val in fields.items():
+        if isinstance(val, (dict, tuple)):
+            continue
+        if isinstance(val, list):
+            if not val or any(isinstance(item, dict) for item in val):
+                continue
+            text = ", ".join(str(item).strip() for item in val if str(item).strip())
+        else:
+            text = str(val).strip() if val is not None else ""
+
+        if not text:
+            continue
+        if len(text) > 300:
+            text = text[:297].rstrip() + "..."
+        context_parts.append(f"{key}: {text}")
+        if sum(len(part) for part in context_parts) > 3500:
+            break
+
+    return "\n".join(context_parts)
+
+
+def _caption_visual_inputs_from_item(img_data):
+    """Return labeled image inputs for single, pair, and triple Airtable cards."""
+    if not isinstance(img_data, dict):
+        return []
+
+    if img_data.get("type") == "pair":
+        slots = [("Before", img_data.get("left") or {}), ("After", img_data.get("right") or {})]
+    elif img_data.get("type") == "triple":
+        slots = [
+            ("Blended Image", img_data.get("left") or {}),
+            ("Closeup Photo One", img_data.get("center") or {}),
+            ("Closeup Photo Two", img_data.get("right") or {}),
+        ]
+    elif img_data.get("type") in (None, "", "single"):
+        slots = [(str(img_data.get("source_field") or "").strip(), img_data)]
+    else:
+        return []
+
+    inputs = []
+    for idx, (default_label, slot) in enumerate(slots, start=1):
+        url = str(slot.get("url") or "").strip()
+        if not url:
+            continue
+        label = str(default_label or slot.get("label") or slot.get("filename") or f"Image {idx}").strip()
+        inputs.append({"label": label, "url": url})
+    return inputs
+
+
 @eel.expose
 def generate_caption(index, session_id=None):
     """Generate AI caption in background. Calls on_caption_ready or on_caption_error."""
@@ -1733,15 +2067,50 @@ def generate_caption(index, session_id=None):
             img_data = images_ref[index]
             fields = img_data.get("fields", {})
             if img_data.get("local_upload"):
-                ai_line = generate_local_image_caption(img_data["local_path"])
+                local_path = img_data["local_path"]
+                if local_path.lower().endswith(tuple(VIDEO_EXTENSIONS)):
+                    # For video uploads, extract a single frame to use for caption generation
+                    frame_dir = tempfile.mkdtemp(prefix="caption_frame_")
+                    try:
+                        frames = _extract_tips_reel_frames(local_path, frame_dir, frame_count=1)
+                        ai_line = generate_local_image_caption(frames[0])
+                    finally:
+                        try:
+                            import shutil
+                            shutil.rmtree(frame_dir)
+                        except Exception:
+                            pass
+                else:
+                    ai_line = generate_local_image_caption(local_path)
                 item_names = ""
+            elif (
+                not img_data.get("tips_reel_upload")
+                and not str(img_data.get("filename") or "").lower().endswith(tuple(VIDEO_EXTENSIONS))
+                and img_data.get("type") in (None, "", "single", "pair", "triple")
+            ):
+                visual_inputs = _caption_visual_inputs_from_item(img_data)
+                context = _caption_text_context_from_fields(fields)
+                visual_context = (
+                    "You are looking at one product or interior image from Airtable."
+                    if len(visual_inputs) == 1
+                    else "You are looking at a related image set from the same Airtable row."
+                )
+                ai_line = generate_lmstudio_visual_caption(
+                    visual_inputs,
+                    text_context=context,
+                    visual_context=visual_context,
+                    fallback_on_exhausted=False,
+                )
+                item_names = get_item_names(fields)
             else:
                 ai_line = generate_short_caption(img_data)
                 item_names = get_item_names(fields)
             full_caption = compose_caption(ai_line, item_names)
-            eel.on_caption_ready(full_caption)
+            with _eel_lock:
+                eel.on_caption_ready(full_caption)
         except Exception as e:
-            eel.on_caption_error(str(e))
+            with _eel_lock:
+                eel.on_caption_error(str(e))
 
     threading.Thread(target=_do, daemon=True).start()
 
@@ -2200,7 +2569,13 @@ def _resolve_tips_reel_post_media(img_data, session):
 def post_to_sb(index, caption, category, schedule_date, schedule_time, session_id=None):
     """Post to SocialBee (regular post). Calls on_post_result."""
     images_ref, _, _ = _resolve_media_context(session_id)
-    if images_ref is None or index < 0 or index >= len(images_ref):
+    if images_ref is None:
+        with _eel_lock:
+            eel.on_post_result("error", "No media session found. Try refreshing or re-uploading the video.")
+        return
+    if index < 0 or index >= len(images_ref):
+        with _eel_lock:
+            eel.on_post_result("error", f"Selected item (index {index}) is out of range ({len(images_ref)} items in session). Try refreshing.")
         return
 
     session = _get_fetch_session(session_id) if session_id else None
@@ -2274,9 +2649,11 @@ def post_to_sb(index, caption, category, schedule_date, schedule_time, session_i
                 )
 
             status, message = result_queue.get(timeout=600)
-            eel.on_post_result(status, message)
+            with _eel_lock:
+                eel.on_post_result(status, message)
         except Exception as e:
-            eel.on_post_result("error", str(e))
+            with _eel_lock:
+                eel.on_post_result("error", str(e))
         finally:
             if temp_local_path and os.path.exists(temp_local_path):
                 try:
@@ -2292,7 +2669,13 @@ def post_story_to_sb(index, caption, category, schedule_date, schedule_time, ses
     """Post to SocialBee Story. Calls on_post_story_result."""
     session = _resolve_media_session(session_id)
     images_ref, _, _ = _resolve_media_context(session_id)
-    if images_ref is None or index < 0 or index >= len(images_ref):
+    if images_ref is None:
+        with _eel_lock:
+            eel.on_post_story_result("error", "No media session found. Try refreshing or re-uploading the video.")
+        return
+    if index < 0 or index >= len(images_ref):
+        with _eel_lock:
+            eel.on_post_story_result("error", f"Selected item (index {index}) is out of range ({len(images_ref)} items in session). Try refreshing.")
         return
 
     img_data = images_ref[index]
@@ -2318,9 +2701,11 @@ def post_story_to_sb(index, caption, category, schedule_date, schedule_time, ses
                 local_path=local_path,
             )
             status, message = result_queue.get(timeout=600)
-            eel.on_post_story_result(status, message)
+            with _eel_lock:
+                eel.on_post_story_result(status, message)
         except Exception as e:
-            eel.on_post_story_result("error", str(e))
+            with _eel_lock:
+                eel.on_post_story_result("error", str(e))
         finally:
             if temp_local_path and os.path.exists(temp_local_path):
                 try:
@@ -2370,7 +2755,8 @@ def mark_posted(index, session_id=None):
             if failures:
                 result["ok"] = False
                 result["warning"] = f"Posted on SocialBee, but {failures} source Airtable row(s) could not be marked."
-            eel.on_posted_marked(index, session_id, result)
+            with _eel_lock:
+                eel.on_posted_marked(index, session_id, result)
             return
 
         field_name = _get_session_field_name(session, img_data)
@@ -2392,7 +2778,8 @@ def mark_posted(index, session_id=None):
             _update_local_upload_fields(img_data.get("upload_id"), img_data.get("fields", {}))
             if sync_error:
                 result["warning"] = f"Posted successfully, but Zoho archive failed: {sync_error}"
-            eel.on_posted_marked(index, session_id, result)
+            with _eel_lock:
+                eel.on_posted_marked(index, session_id, result)
             return
         base_id = img_data.get("base_id")
         table_id = img_data.get("table_id")
@@ -2406,7 +2793,8 @@ def mark_posted(index, session_id=None):
                 print(f"Cache update warning: {e}")
             if sync_error:
                 result["warning"] = f"Posted successfully, but Zoho archive failed: {sync_error}"
-            eel.on_posted_marked(index, session_id, result)
+            with _eel_lock:
+                eel.on_posted_marked(index, session_id, result)
             return
         success = mark_record_posted(base_id, table_id, record_id)
         if success:
@@ -2427,7 +2815,8 @@ def mark_posted(index, session_id=None):
                 result["warning"] = f"Posted on SocialBee, but Airtable mark failed. Zoho archive also failed: {sync_error}"
             else:
                 result["warning"] = "Posted on SocialBee, but Airtable mark failed."
-        eel.on_posted_marked(index, session_id, result)
+        with _eel_lock:
+            eel.on_posted_marked(index, session_id, result)
 
     threading.Thread(target=_do, daemon=True).start()
 
@@ -2497,12 +2886,14 @@ def disregard_records(indices, disregard, session_id=None):
     """Move discarded images to Zoho Workdrive and remove from Airtable."""
     if not disregard:
         print("Undo disregard not supported when items are moved directly to Zoho.")
-        eel.on_disregard_done([], False)
+        with _eel_lock:
+            eel.on_disregard_done([], False)
         return
 
     images_ref, cache_base, cache_key = _resolve_media_context(session_id)
     if images_ref is None:
-        eel.on_disregard_done([], False)
+        with _eel_lock:
+            eel.on_disregard_done([], False)
         return
 
     def _do():
@@ -2578,7 +2969,8 @@ def disregard_records(indices, disregard, session_id=None):
             print(f"Cache update warning: {e}")
 
         # Note: propagate_disregard is removed because the item is removed from Airtable entirely.
-        eel.on_disregard_done(successful_indices, disregard)
+        with _eel_lock:
+            eel.on_disregard_done(successful_indices, disregard)
 
     threading.Thread(target=_do, daemon=True).start()
 
@@ -2643,10 +3035,12 @@ def add_watermark(index, position, current_src=""):
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
             data_uri = f"data:image/jpeg;base64,{b64}"
 
-            eel.on_watermark_done(True, data_uri)
+            with _eel_lock:
+                eel.on_watermark_done(True, data_uri)
         except Exception as e:
             print(f"  Watermark error: {e}")
-            eel.on_watermark_done(False, str(e))
+            with _eel_lock:
+                eel.on_watermark_done(False, str(e))
 
     threading.Thread(target=_do, daemon=True).start()
 
@@ -2694,10 +3088,12 @@ def convert_to_ig_story(index):
             data_uri = f"data:image/jpeg;base64,{b64}"
 
             print(f"  Converted to IG Story: 1080x1920")
-            eel.on_story_converted(True, data_uri)
+            with _eel_lock:
+                eel.on_story_converted(True, data_uri)
         except Exception as e:
             print(f"  Story conversion error: {e}")
-            eel.on_story_converted(False, str(e))
+            with _eel_lock:
+                eel.on_story_converted(False, str(e))
 
     threading.Thread(target=_do, daemon=True).start()
 
@@ -2708,9 +3104,11 @@ def setup_chrome_post():
     def _do():
         try:
             setup_chrome_post_profile()
-            eel.on_setup_done("Login saved! Headless posting ready.")
+            with _eel_lock:
+                eel.on_setup_done("Login saved! Headless posting ready.")
         except Exception as e:
-            eel.on_setup_done(f"Setup error: {e}")
+            with _eel_lock:
+                eel.on_setup_done(f"Setup error: {e}")
 
     threading.Thread(target=_do, daemon=True).start()
 
@@ -2721,9 +3119,11 @@ def setup_chrome_story():
     def _do():
         try:
             setup_chrome_story_profile()
-            eel.on_setup_done("Story login saved!")
+            with _eel_lock:
+                eel.on_setup_done("Story login saved!")
         except Exception as e:
-            eel.on_setup_done(f"Setup error: {e}")
+            with _eel_lock:
+                eel.on_setup_done(f"Setup error: {e}")
 
     threading.Thread(target=_do, daemon=True).start()
 
@@ -2744,13 +3144,16 @@ def download_video(url, filename):
                 downloaded += len(chunk)
                 if total > 0:
                     pct = int(downloaded / total * 100)
-                    eel.on_video_progress(pct, downloaded / 1048576, total / 1048576)
+                    with _eel_lock:
+                        eel.on_video_progress(pct, downloaded / 1048576, total / 1048576)
             tmp.close()
             os.startfile(tmp.name)
-            eel.on_video_progress(100, 0, 0)
+            with _eel_lock:
+                eel.on_video_progress(100, 0, 0)
         except Exception as e:
             print(f"Video download error: {e}")
-            eel.on_video_progress(100, 0, 0)
+            with _eel_lock:
+                eel.on_video_progress(100, 0, 0)
 
     threading.Thread(target=_do, daemon=True).start()
 

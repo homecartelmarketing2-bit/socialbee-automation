@@ -571,6 +571,15 @@ textarea::-webkit-scrollbar-thumb {
   max-width: 280px;
 }
 
+.tips-reel-upload-panel .local-upload-dropzone::before {
+  border-color: rgba(120, 200, 255, 0.28);
+}
+
+.tips-reel-upload-panel .local-upload-dropzone:hover::before,
+.tips-reel-upload-panel .local-upload-dropzone.dragging::before {
+  border-color: rgba(120, 200, 255, 0.48);
+}
+
 .gallery-card-shell {
   display: grid;
   gap: 10px;

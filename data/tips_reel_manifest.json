@@ -148,7 +148,7 @@
       "voiceover": false
     },
     "e93139f4056e0074e47bc25e": {
-      "label": "Combined Tips Reel error at Writing AI tip clip 1/3",
+      "label": "Generating voiceover clip 1/3",
       "source_count": 3,
       "source_filenames": [
         "deaf66ddcb61ff7e33c8d588893f410d_1777279407_1lhdjt0w.mp4",
@@ -156,9 +156,11 @@
         "10374913abb645ef8bd806211ef855b3_1_1777863717_8562.mp4"
       ],
       "status": "error",
-      "updated_at": 1778215168.8082871,
-      "error": "LM Studio disconnected while generating a unique tip. Start LM Studio and retry this Tips Reel.",
-      "tips": [],
+      "updated_at": 1778477048.1204226,
+      "error": "Previous conversion did not finish.",
+      "tips": [
+        "Balancing rustic textures with contemporary glow creates drama"
+      ],
       "visual_sources": [
         "Blended Image"
       ],

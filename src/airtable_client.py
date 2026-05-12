@@ -132,7 +132,7 @@ def clear_cache():
 
 # ─── Core: fetch a single table (with rate limiting + retry) ──
 
-def _fetch_single_table(base_id, table_id):
+def _fetch_single_table(base_id, table_id, page_callback=None):
     """Fetch all records from one table. Handles pagination and rate limits."""
     url = f"https://api.airtable.com/v0/{base_id}/{table_id}"
     records = []
@@ -146,23 +146,28 @@ def _fetch_single_table(base_id, table_id):
 
         try:
             resp = _session.get(url, params=params, timeout=30)
-        except requests.RequestException as e:
-            print(f"  Warning: table {table_id} network error: {e}")
+            if resp.status_code == 429:
+                # Rate limited — back off and retry
+                retry_after = int(resp.headers.get("Retry-After", 2))
+                print(f"  Rate limited on {table_id}, waiting {retry_after}s...")
+                time.sleep(retry_after)
+                continue
+            
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            print(f"  Warning: table {table_id} error: {e}")
             break
 
-        if resp.status_code == 429:
-            # Rate limited — back off and retry
-            retry_after = int(resp.headers.get("Retry-After", 2))
-            print(f"  Rate limited on {table_id}, waiting {retry_after}s...")
-            time.sleep(retry_after)
-            continue
+        new_records = data.get("records") or []
+        records.extend(new_records)
+        
+        if page_callback and new_records:
+            try:
+                page_callback(table_id, new_records)
+            except Exception as e:
+                print(f"  Page callback warning: {e}")
 
-        if resp.status_code != 200:
-            print(f"  Warning: table {table_id} error {resp.status_code}, skipping")
-            break
-
-        data = resp.json()
-        records.extend(data.get("records", []))
         offset = data.get("offset")
         if not offset:
             break
@@ -199,8 +204,8 @@ def fetch_raw_records_for_base(base_id):
 def fetch_all_records_for_base(base_id, progress_callback=None, field_name=None, batch_callback=None):
     """Fetch all images from ALL tables in a base, in parallel with caching.
 
-    If `batch_callback` is provided, it is called with the per-table image list
-    as each table finishes (streaming). The final aggregated list is still
+    If `batch_callback` is provided, it is called incrementally as each page 
+    of records is fetched (streaming). The final aggregated list is still
     returned and cached as before.
     """
     use_field = field_name or AIRTABLE_FIELD_NAME
@@ -221,48 +226,70 @@ def fetch_all_records_for_base(base_id, progress_callback=None, field_name=None,
     completed = [0]
     lock = threading.Lock()
 
-    def _on_table_done(future):
-        table_id, records = future.result()
+    def _process_records(tid, records):
         images = []
         for rec in records:
             fields = rec.get("fields", {})
             attachments = fields.get(use_field, [])
-            if not attachments:
+            if not isinstance(attachments, list):
                 continue
             for att in attachments:
+                if not isinstance(att, dict):
+                    continue
                 img_url = att.get("url")
                 filename = att.get("filename", "unknown")
                 if img_url:
-                    thumb_url = att.get("thumbnails", {}).get("large", {}).get("url", img_url)
+                    # Safely handle potentially null thumbnail objects
+                    thumbnails = att.get("thumbnails") or {}
+                    large_thumb = thumbnails.get("large") or {}
+                    thumb_url = large_thumb.get("url") or img_url
+                    
                     images.append({
                         "url": img_url,
                         "thumb_url": thumb_url,
                         "filename": filename,
                         "record_id": rec["id"],
                         "base_id": base_id,
-                        "table_id": table_id,
+                        "table_id": tid,
                         "fields": fields,
                     })
+        return images
+
+    def _on_page(tid, records):
+        images = _process_records(tid, records)
         with lock:
             all_images.extend(images)
-            completed[0] += 1
-            if progress_callback:
-                progress_callback(completed[0], total_tables, len(all_images))
         if batch_callback and images:
             try:
                 batch_callback(images)
             except Exception as e:
                 print(f"  Batch callback warning: {e}")
 
+    def _on_table_done(future):
+        try:
+            tid, records = future.result()
+            with lock:
+                completed[0] += 1
+                if progress_callback:
+                    progress_callback(completed[0], total_tables, len(all_images))
+        except Exception as e:
+            print(f"  Table fetch error: {e}")
+            with lock:
+                completed[0] += 1
+
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = []
         for tid in table_ids:
-            f = executor.submit(_fetch_single_table, base_id, tid)
+            # We use _on_page for immediate streaming, and _on_table_done for progress
+            f = executor.submit(_fetch_single_table, base_id, tid, page_callback=_on_page)
             f.add_done_callback(_on_table_done)
             futures.append(f)
         # Wait for all to finish
         for f in futures:
-            f.result()
+            try:
+                f.result()
+            except Exception:
+                pass
 
     # 3. Cache the result
     _save_cache(base_id, use_field, all_images)
@@ -306,17 +333,21 @@ def fetch_paired_records_for_base(base_id, field1, field2, progress_callback=Non
             img1 = att1[0] if isinstance(att1, list) else None
             img2 = att2[0] if isinstance(att2, list) else None
             if img1 and img2 and img1.get("url") and img2.get("url"):
+                # Safely handle potentially null thumbnail objects
+                thumb1 = (img1.get("thumbnails") or {}).get("large") or {}
+                thumb2 = (img2.get("thumbnails") or {}).get("large") or {}
+                
                 pairs.append({
                     "type": "pair",
                     "left": {
                         "url": img1["url"],
-                        "thumb_url": img1.get("thumbnails", {}).get("large", {}).get("url", img1["url"]),
+                        "thumb_url": thumb1.get("url") or img1["url"],
                         "filename": img1.get("filename", "image1.jpg"),
                         "label": field1,
                     },
                     "right": {
                         "url": img2["url"],
-                        "thumb_url": img2.get("thumbnails", {}).get("large", {}).get("url", img2["url"]),
+                        "thumb_url": thumb2.get("url") or img2["url"],
                         "filename": img2.get("filename", "image2.jpg"),
                         "label": field2,
                     },
@@ -389,23 +420,28 @@ def fetch_triple_records_for_base(base_id, field1, field2, field3, progress_call
             img2 = att2[0] if isinstance(att2, list) else None
             img3 = att3[0] if isinstance(att3, list) else None
             if img1 and img2 and img3 and img1.get("url") and img2.get("url") and img3.get("url"):
+                # Safely handle potentially null thumbnail objects
+                thumb1 = (img1.get("thumbnails") or {}).get("large") or {}
+                thumb2 = (img2.get("thumbnails") or {}).get("large") or {}
+                thumb3 = (img3.get("thumbnails") or {}).get("large") or {}
+                
                 triples.append({
                     "type": "triple",
                     "left": {
                         "url": img1["url"],
-                        "thumb_url": img1.get("thumbnails", {}).get("large", {}).get("url", img1["url"]),
+                        "thumb_url": thumb1.get("url") or img1["url"],
                         "filename": img1.get("filename", "image1.jpg"),
                         "label": field1,
                     },
                     "center": {
                         "url": img2["url"],
-                        "thumb_url": img2.get("thumbnails", {}).get("large", {}).get("url", img2["url"]),
+                        "thumb_url": thumb2.get("url") or img2["url"],
                         "filename": img2.get("filename", "image2.jpg"),
                         "label": field2,
                     },
                     "right": {
                         "url": img3["url"],
-                        "thumb_url": img3.get("thumbnails", {}).get("large", {}).get("url", img3["url"]),
+                        "thumb_url": thumb3.get("url") or img3["url"],
                         "filename": img3.get("filename", "image3.jpg"),
                         "label": field3,
                     },
@@ -538,7 +574,7 @@ def fetch_all_records():
             raise Exception(f"Airtable API error {resp.status_code}: {resp.text}")
 
         data = resp.json()
-        all_records.extend(data.get("records", []))
+        all_records.extend(data.get("records") or [])
         offset = data.get("offset")
         if not offset:
             break

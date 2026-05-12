@@ -131,19 +131,31 @@ def _extract_chat_content(data):
         return ""
 
 
+def _encode_pil_image(img):
+    """Resize and base64-encode a PIL image for the local vision model."""
+    img = img.convert("RGB")
+    max_side = 1024
+    if max(img.size) > max_side:
+        img.thumbnail((max_side, max_side), Image.LANCZOS)
+
+    buffer = BytesIO()
+    img.save(buffer, format="JPEG", quality=82, optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
 def _encode_local_image(image_path):
     """Resize and base64-encode an uploaded image for the local vision model."""
     with Image.open(image_path) as img:
-        img = img.convert("RGB")
-        max_side = 1024
-        if max(img.size) > max_side:
-            img.thumbnail((max_side, max_side), Image.LANCZOS)
+        return _encode_pil_image(img)
 
-        buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=82, optimize=True)
 
-    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{encoded}"
+def _download_image_data_url(url):
+    """Download an image URL and return a data URL for LM Studio vision."""
+    resp = requests.get(str(url), timeout=(LMSTUDIO_CONNECT_TIMEOUT, 30))
+    resp.raise_for_status()
+    with Image.open(BytesIO(resp.content)) as img:
+        return _encode_pil_image(img)
 
 
 def _load_caption_history():
@@ -380,22 +392,61 @@ YOUR CAPTION:"""
 def generate_local_image_caption(image_path):
     """Generate a short caption from a locally uploaded image via LM Studio."""
     data_url = _encode_local_image(image_path)
+    return generate_lmstudio_visual_caption(
+        [{"label": "Uploaded image", "data_url": data_url}],
+        visual_context="You are looking at ONE uploaded product or interior photo.",
+        fallback_on_exhausted=True,
+    )
+
+
+def generate_lmstudio_visual_caption(image_inputs, text_context="", visual_context="", fallback_on_exhausted=False):
+    """Generate a short caption from one or more images using LM Studio vision."""
+    prepared_images = []
+    for idx, item in enumerate(image_inputs or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or f"Image {idx}").strip() or f"Image {idx}"
+        data_url = item.get("data_url")
+        if not data_url and item.get("path"):
+            data_url = _encode_local_image(item["path"])
+        if not data_url and item.get("url"):
+            data_url = _download_image_data_url(item["url"])
+        if data_url:
+            prepared_images.append({"label": label, "data_url": data_url})
+
+    if not prepared_images:
+        raise RuntimeError("No image was available for LM Studio caption generation.")
+
     recent_captions = _recent_captions()
     last_error = None
+    image_count = len(prepared_images)
+    visual_context = visual_context or (
+        "You are looking at ONE product or interior photo."
+        if image_count == 1
+        else f"You are looking at {image_count} related product/interior photos from the same Airtable row."
+    )
+    label_lines = "\n".join(f"- Image {idx}: {item['label']}" for idx, item in enumerate(prepared_images, start=1))
+    context_block = str(text_context or "").strip()
+    if context_block:
+        context_block = f"\nPRODUCT DETAILS FROM OUR DATABASE:\n{context_block}\n"
 
     for _ in range(CAPTION_RETRY_ATTEMPTS):
         mood, style = _random_caption_style()
         prompt = f"""You are a creative copywriter for HomeCartel, a premium lighting and home furniture brand in the Philippines.
 
-You are looking at ONE uploaded product or interior photo.
+{visual_context}
+
+IMAGE LABELS:
+{label_lines}
+{context_block}
 
 YOUR TASK:
-Write ONE short Facebook caption (3-6 words max) inspired by the image.
+Write ONE short Facebook caption (3-6 words max) inspired by the visible image content.
 
 REQUIREMENTS:
 - Mood to convey: {mood}
 - Writing style: {style}
-- The caption must reference something visible in the image such as the material, silhouette, color, texture, finish, styling, ambiance, or design feeling
+- The caption must reference something visible in the image or image set such as the material, silhouette, color, texture, finish, styling, ambiance, contrast, or design feeling
 - Add ONE emoji at the end that matches the mood
 - Output ONLY the caption line - no explanation, no quotes, no hashtags
 
@@ -403,6 +454,11 @@ BANNED PHRASES (never use these):
 "Light up your space", "Illuminate your world", "Brighten your home", "Shine bright", "Glow up", "Golden glow"{_avoid_recent_prompt_block(recent_captions)}
 
 YOUR CAPTION:"""
+
+        content_parts = [{"type": "text", "text": prompt}]
+        for idx, item in enumerate(prepared_images, start=1):
+            content_parts.append({"type": "text", "text": f"Image {idx}: {item['label']}"})
+            content_parts.append({"type": "image_url", "image_url": {"url": item["data_url"]}})
 
         try:
             resp = requests.post(
@@ -415,10 +471,7 @@ YOUR CAPTION:"""
                     "model": LMSTUDIO_MODEL,
                     "messages": [{
                         "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": data_url}},
-                        ],
+                        "content": content_parts,
                     }],
                     "max_tokens": LMSTUDIO_MAX_TOKENS,
                     "temperature": 1.0,
@@ -451,7 +504,10 @@ YOUR CAPTION:"""
     if last_error is not None:
         raise RuntimeError(f"LM Studio caption generation failed: {last_error}") from last_error
 
-    return _unique_fallback_caption()
+    if fallback_on_exhausted:
+        return _unique_fallback_caption()
+
+    raise RuntimeError("LM Studio did not return a fresh unique caption. Retry after the model is ready.")
 
 
 def _clean_tip_output(content):

@@ -2,7 +2,15 @@
   "version": 1,
   "categories": {
     "Collection Categ System": [],
-    "Tips Educational Photos": [],
+    "Tips Educational Photos": [
+      {
+        "upload_id": "72f3487181c942818a039ff889d57b69",
+        "filename": "Lighting-Tips-for-Marketing-3.png",
+        "stored_name": "72f3487181c942818a039ff889d57b69_Lighting-Tips-for-Marketing-3.png",
+        "source_field": "Tips Educational Photos",
+        "fields": {}
+      }
+    ],
     "Quotes Photos": []
   }
 }

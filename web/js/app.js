@@ -511,8 +511,12 @@ function isTipsReelCategory(categoryId = state.activeCategory) {
   return categoryId === "tips-reels";
 }
 
-function isTipsReelActionCategory(categoryId = state.activeCategory) {
+function isVideoUploadCategory(categoryId = state.activeCategory) {
   return categoryId === "styled-reels" || categoryId === "tips-reels";
+}
+
+function isTipsReelActionCategory(categoryId = state.activeCategory) {
+  return categoryId === "tips-reels";
 }
 
 function canConvertToTipsReel(img, categoryId = state.activeCategory) {
@@ -721,6 +725,9 @@ function getMediaOriginLabel(img) {
   if (img && img.type === "zoho") {
     return "Zoho";
   }
+  if (img && img.tips_reel_upload) {
+    return "Uploaded";
+  }
   return "Local";
 }
 
@@ -741,6 +748,30 @@ function localUploadPanelMarkup(config, lane) {
           <input class="local-upload-input" data-local-input="true" type="file" accept="image/*" multiple>
           <span class="local-upload-title">${isBusy ? "Uploading..." : "Drop Photos"}</span>
           <span class="local-upload-subtitle">Files append to this queue and stay available after restart.</span>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function videoUploadPanelMarkup(lane, categoryId = state.activeCategory) {
+  const isBusy = lane.streaming || lane.uploadingCount > 0;
+  const helper = isBusy
+    ? `Uploading ${lane.uploadingCount} video${lane.uploadingCount === 1 ? "" : "s"}...`
+    : "Drag and drop video files here, or browse from your computer.";
+  const config = getCategoryConfig(categoryId);
+  return `
+    <section class="local-upload-panel tips-reel-upload-panel">
+      <div class="local-upload-copy">
+        <p class="eyebrow">Video Upload</p>
+        <h4>Upload ${escapeHtml(config.label || "Videos")}</h4>
+        <p>${escapeHtml(helper)}</p>
+      </div>
+      <div class="local-upload-actions">
+        <div class="local-upload-dropzone${isBusy ? " busy" : ""}" data-tips-reel-dropzone="true" tabindex="0" role="button" aria-label="Upload videos">
+          <input class="local-upload-input" data-tips-reel-input="true" type="file" accept="video/*" multiple>
+          <span class="local-upload-title">${isBusy ? "Uploading..." : "Drop Videos"}</span>
+          <span class="local-upload-subtitle">Video files only. Uploaded reels stay saved for later use.</span>
         </div>
       </div>
     </section>
@@ -1271,7 +1302,9 @@ function renderGallery() {
   }
 
   if (lane.fetchError && lane.images.length === 0) {
+    const uploadPanel = isVideoUploadCategory() ? videoUploadPanelMarkup(lane) : "";
     container.innerHTML = `
+      ${uploadPanel}
       <div class="gallery-error">
         <div>
           <h4>Could not load ${config.label}.</h4>
@@ -1279,6 +1312,9 @@ function renderGallery() {
         </div>
       </div>
     `;
+    if (isVideoUploadCategory()) {
+      wireTipsReelUploadControls(container);
+    }
     return;
   }
 
@@ -1288,14 +1324,19 @@ function renderGallery() {
   }
 
   if (visible.length === 0 && lane.images.length === 0) {
+    const uploadPanel = isVideoUploadCategory() ? videoUploadPanelMarkup(lane) : "";
     container.innerHTML = `
+      ${uploadPanel}
       <div class="gallery-empty">
         <div>
           <h4>No items found.</h4>
-          <p>This source did not return any attachments for <strong>${escapeHtml(sourceLabel)}</strong>.</p>
+          <p>This source did not return any attachments for <strong>${escapeHtml(sourceLabel)}</strong>.${isVideoUploadCategory() ? " Upload your own videos above." : ""}</p>
         </div>
       </div>
     `;
+    if (isVideoUploadCategory()) {
+      wireTipsReelUploadControls(container);
+    }
     return;
   }
 
@@ -1314,9 +1355,14 @@ function renderGallery() {
   const remainder = visible.length % 4;
   const trailingCount = remainder === 0 ? 1 : Math.max(1, 4 - remainder);
   const loadingTail = lane.streaming ? skeletonMarkup(Math.min(3, trailingCount)) : "";
-  container.innerHTML = `<div class="gallery-grid">${galleryCardsMarkup(visible, lane)}${loadingTail}</div>`;
+  const uploadPanel = isVideoUploadCategory() ? videoUploadPanelMarkup(lane) : "";
+  const deleteAllowed = isVideoUploadCategory();
+  container.innerHTML = `${uploadPanel}<div class="gallery-grid">${galleryCardsMarkup(visible, lane, { allowDelete: deleteAllowed })}${loadingTail}</div>`;
 
-  wireGalleryInteractions(container);
+  wireGalleryInteractions(container, { allowDelete: deleteAllowed });
+  if (isVideoUploadCategory()) {
+    wireTipsReelUploadControls(container);
+  }
 }
 
 function wireGalleryInteractions(container, { allowDelete = false } = {}) {
@@ -1331,7 +1377,7 @@ function wireGalleryInteractions(container, { allowDelete = false } = {}) {
       openPreview(index);
     });
     button.addEventListener("contextmenu", (event) => {
-      if (allowDelete || isLocalUploadCategory()) {
+      if ((allowDelete && !isTipsReelCategory()) || isLocalUploadCategory()) {
         selectPostTarget(index, event);
         return;
       }
@@ -1346,7 +1392,12 @@ function wireGalleryInteractions(container, { allowDelete = false } = {}) {
   container.querySelectorAll("[data-delete-upload]").forEach((button) => {
     button.addEventListener("click", (event) => {
       const index = Number(button.dataset.index);
-      onDeleteLocalUpload(button.dataset.deleteUpload, index, event);
+      const img = currentCategoryState().images[index];
+      if (isVideoUploadCategory() && img && img.tips_reel_upload) {
+        onDeleteTipsReelUpload(button.dataset.deleteUpload, index, event);
+      } else {
+        onDeleteLocalUpload(button.dataset.deleteUpload, index, event);
+      }
     });
   });
 }
@@ -1387,6 +1438,50 @@ function wireLocalUploadControls(container) {
   });
   input.addEventListener("change", () => {
     uploadLocalFiles(Array.from(input.files || []));
+    input.value = "";
+  });
+}
+
+function wireTipsReelUploadControls(container) {
+  const dropzone = container.querySelector("[data-tips-reel-dropzone]");
+  const input = container.querySelector("[data-tips-reel-input]");
+  if (!dropzone || !input) {
+    return;
+  }
+
+  const handleFiles = (files) => {
+    uploadTipsReelVideos(files, state.activeCategory);
+  };
+
+  const openPicker = () => {
+    if (state.posting) {
+      $("post-status").textContent = "Wait for the current post to finish before uploading more videos.";
+      return;
+    }
+    input.click();
+  };
+
+  dropzone.addEventListener("click", () => openPicker());
+  dropzone.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openPicker();
+    }
+  });
+  dropzone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropzone.classList.add("dragging");
+  });
+  dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("dragging");
+  });
+  dropzone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropzone.classList.remove("dragging");
+    uploadTipsReelVideos(Array.from(event.dataTransfer ? event.dataTransfer.files || [] : []));
+  });
+  input.addEventListener("change", () => {
+    uploadTipsReelVideos(Array.from(input.files || []));
     input.value = "";
   });
 }
@@ -2633,12 +2728,16 @@ function on_images_appended(batch, sessionId) {
   }
 
   if (!lane.preserveVisible) {
-    lane.images.push(...batch);
+    lane.images = lane.images.concat(batch || []);
   }
 
   if (state.activeCategory === categoryId) {
     ensureSelection();
-    renderAll();
+    try {
+      renderAll();
+    } catch (e) {
+      console.error("Render failed after batch update:", e);
+    }
   } else {
     renderSidebar();
   }
@@ -2660,7 +2759,23 @@ function on_images_loaded(images, sessionId) {
   lane.fetchError = "";
   lane.hasLoadedOnce = true;
   lane.loadedSessionId = sessionId;
-  reconcileLaneImages(lane, images || []);
+  
+  if (images && images.length > 0) {
+    reconcileLaneImages(lane, images);
+  }
+
+  if (isVideoUploadCategory(categoryId)) {
+    mergeTipsReelUploadsIntoLane(categoryId).then(() => {
+      if (state.activeCategory === categoryId) {
+        ensureSelection();
+        syncPreviewAfterVisibilityChange();
+        renderAll();
+      } else {
+        renderSidebar();
+      }
+    });
+    return;
+  }
 
   if (state.activeCategory === categoryId) {
     ensureSelection();
@@ -2942,6 +3057,117 @@ async function onDeleteLocalUpload(uploadId, index, event) {
     syncPreviewAfterVisibilityChange();
     renderAll();
     $("post-status").textContent = "Photo removed from the local queue.";
+  } catch (error) {
+    $("post-status").textContent = `Delete error: ${error.message || error}`;
+    alert(`Delete error: ${error.message || error}`);
+  }
+}
+
+async function uploadTipsReelVideos(files, categoryId = state.activeCategory) {
+  const videoFiles = (files || []).filter((file) => {
+    const name = String(file.name || "").toLowerCase();
+    return VIDEO_EXTENSIONS.has(getFileExtension(name));
+  });
+  if (videoFiles.length === 0) {
+    $("post-status").textContent = "Only video files can be uploaded here (.mp4, .mov, .avi, .mkv, .webm, .m4v).";
+    return;
+  }
+
+  const lane = getCategoryState(categoryId);
+  if (!lane.sessionId) {
+    lane.sessionId = createSessionId(categoryId);
+  }
+
+  lane.uploadingCount += videoFiles.length;
+  lane.hasLoadedOnce = true;
+  lane.loadedSessionId = lane.sessionId;
+  if (state.activeCategory === categoryId) {
+    renderAll();
+  } else {
+    renderSidebar();
+  }
+
+  for (const file of videoFiles) {
+    const formData = new FormData();
+    formData.append("video", file);
+    formData.append("session_id", lane.sessionId);
+    formData.append("category_id", categoryId);
+
+    try {
+      const response = await fetch("/tips_reel_upload_video", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Upload failed.");
+      }
+
+      if (payload.item) {
+        lane.images.push(payload.item);
+      }
+      lane.fetchError = "";
+      lane.currentIndex = lane.images.length > 0 ? lane.images.length - 1 : null;
+      lane.previewIndex = null;
+      $("post-status").textContent = `${file.name} added to Tips Reels.`;
+    } catch (error) {
+      lane.fetchError = error.message || String(error);
+      $("post-status").textContent = `Upload error: ${lane.fetchError}`;
+      alert(`Upload error: ${lane.fetchError}`);
+    } finally {
+      lane.uploadingCount = Math.max(0, lane.uploadingCount - 1);
+      if (state.activeCategory === categoryId) {
+        ensureSelection();
+        syncPreviewAfterVisibilityChange();
+        renderAll();
+      } else {
+        renderSidebar();
+      }
+    }
+  }
+}
+
+async function mergeTipsReelUploadsIntoLane(categoryId = state.activeCategory) {
+  try {
+    const lane = getCategoryState(categoryId);
+    const uploads = await eel.get_tips_reel_uploads(lane.sessionId)();
+    if (uploads && uploads.length > 0) {
+      const existingKeys = new Set(lane.images.map((img) => getImageKey(img)));
+      const newItems = uploads.filter((img) => !existingKeys.has(getImageKey(img)));
+      if (newItems.length > 0) {
+        lane.images.push(...newItems);
+      }
+    }
+  } catch (error) {
+    console.warn("Could not load tips reel uploads:", error);
+  }
+}
+
+async function onDeleteTipsReelUpload(uploadId, index, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  if (state.posting) {
+    $("post-status").textContent = "Wait for the current post to finish before removing queued videos.";
+    return;
+  }
+
+  const lane = currentCategoryState();
+  try {
+    const result = await eel.delete_tips_reel_upload(uploadId, lane.sessionId)();
+    if (!result || !result.ok) {
+      throw new Error((result && result.error) || "Delete failed.");
+    }
+    lane.images = lane.images.filter((img) => !(img.tips_reel_upload && img.upload_id === uploadId));
+    if (lane.currentIndex === index && itemMatchesFilter(lane.images[index]) === false) {
+      lane.currentIndex = null;
+    }
+    ensureSelection();
+    syncPreviewAfterVisibilityChange();
+    renderAll();
+    $("post-status").textContent = "Video removed from Tips Reels.";
   } catch (error) {
     $("post-status").textContent = `Delete error: ${error.message || error}`;
     alert(`Delete error: ${error.message || error}`);
