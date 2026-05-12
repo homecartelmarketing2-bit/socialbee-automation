@@ -150,22 +150,47 @@ def _wait_for_scope_media(scope, minimum_count=1, timeout_ms=20000):
 
 
 def _resolve_active_variation_scope(page, label=""):
-    """Find the currently expanded variation container using the visible post-type dropdown."""
-    dropdown = page.locator("button.share-location-button:visible").last
-    dropdown.wait_for(state="visible", timeout=8000)
+    """Find the currently expanded variation container.
+
+    Strategy:
+    1. Prefer anchoring on a visible post-type dropdown (Feed Post / TikTok
+       Public ▾) — but tolerate platforms that don't render one (some
+       Instagram variations).
+    2. Fall back to the visible editor (`.ql-editor`) and walk up to its
+       enclosing container that also has a file input.
+    """
+    anchors = []
+    try:
+        dropdown = page.locator("button.share-location-button:visible").last
+        if dropdown.count() > 0:
+            try:
+                dropdown.wait_for(state="visible", timeout=3000)
+                anchors.append(dropdown)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    try:
+        editor = page.locator(".ql-editor:visible").last
+        if editor.count() > 0:
+            anchors.append(editor)
+    except Exception:
+        pass
 
     candidates = (
         "xpath=ancestor::*[.//input[@type='file'] and (.//*[contains(@class,'ql-editor')] or .//*[@contenteditable='true'])][1]",
         "xpath=ancestor::*[.//input[@type='file']][1]",
         "xpath=ancestor::*[.//*[contains(@class,'ql-editor')] or .//*[@contenteditable='true']][1]",
     )
-    for selector in candidates:
-        try:
-            scope = dropdown.locator(selector).first
-            if scope.count() > 0:
-                return scope
-        except Exception:
-            pass
+    for anchor in anchors:
+        for selector in candidates:
+            try:
+                scope = anchor.locator(selector).first
+                if scope.count() > 0:
+                    return scope
+            except Exception:
+                pass
 
     print(f"  [{label}] Variation scope fallback to page-level selectors")
     return page
@@ -234,14 +259,24 @@ def _activate_variation(page, variant_index, platform_name, screenshot_dir=None)
 
 
 def _ensure_variation_caption_and_media(page, variant_index, platform_name, caption, upload_path, screenshot_dir=None):
-    """Ensure one active variation has the expected caption and media."""
+    """Ensure one active variation has the expected caption and media.
+
+    Treats the visibility of the "Add a photo or video" prompt as the
+    authoritative signal that the variation is missing media. SocialBee's
+    media-thumbnail class names vary, so a count-based check on its own
+    was unreliable and led the recovery upload to fire on variations that
+    already had media (causing duplicate uploads, e.g. two photos on the
+    Facebook variation).
+    """
     scope = _activate_variation(page, variant_index, platform_name, screenshot_dir=screenshot_dir)
     editor = _get_scope_editor(scope, platform_name)
     editor_text = _read_editor_text(editor)
+    add_prompt = _is_add_media_prompt_visible(scope)
     media_count = _count_media_in_scope(scope)
-    has_media = media_count > 0 and not _is_add_media_prompt_visible(scope)
+    has_media = (not add_prompt) and (media_count > 0 or _scope_has_media_dom(scope))
     print(
-        f"  [{platform_name}] Before fill: editor_chars={len(editor_text)} media_count={media_count} has_media={has_media}"
+        f"  [{platform_name}] Before fill: editor_chars={len(editor_text)} "
+        f"media_count={media_count} add_prompt={add_prompt} has_media={has_media}"
     )
 
     if not editor_text:
@@ -252,25 +287,51 @@ def _ensure_variation_caption_and_media(page, variant_index, platform_name, capt
         editor_text = _read_editor_text(editor)
 
     if not has_media:
+        print(f"  [{platform_name}] No media detected \u2014 uploading...")
         file_input = _get_scope_file_input(scope, platform_name)
         file_input.set_input_files(upload_path)
         page.wait_for_timeout(5000)
-        media_count = _wait_for_scope_media(scope, minimum_count=1)
-        has_media = media_count > 0
+        # Wait for the add-prompt to disappear before falling back to the
+        # count check, so we trust SocialBee's own "empty" indicator.
+        for _ in range(20):
+            if not _is_add_media_prompt_visible(scope):
+                break
+            page.wait_for_timeout(500)
+        has_media = not _is_add_media_prompt_visible(scope)
 
     final_text = _read_editor_text(editor)
+    final_add_prompt = _is_add_media_prompt_visible(scope)
     final_media_count = _count_media_in_scope(scope)
     print(
-        f"  [{platform_name}] After fill: editor_chars={len(final_text)} media_count={final_media_count}"
+        f"  [{platform_name}] After fill: editor_chars={len(final_text)} "
+        f"media_count={final_media_count} add_prompt={final_add_prompt}"
     )
     if not final_text:
         raise RuntimeError(f"[{platform_name}] Caption is still empty after variation fill.")
-    if final_media_count <= 0:
-        raise RuntimeError(f"[{platform_name}] Media is still missing after variation fill.")
+    if final_add_prompt:
+        raise RuntimeError(f"[{platform_name}] Media prompt still visible after variation fill.")
 
     if screenshot_dir:
         page.screenshot(path=os.path.join(screenshot_dir, f"variation_{platform_name.lower()}_verified.png"))
     return scope
+
+
+def _scope_has_media_dom(scope):
+    """Loose check: returns True if the active scope contains a thumbnail-like img/video preview."""
+    selectors = (
+        "img[src*='blob:']:visible",
+        "img[src*='data:image']:visible",
+        "video:visible",
+        ".item-wrap img:visible",
+        "[class*='preview'] img:visible",
+    )
+    for selector in selectors:
+        try:
+            if scope.locator(selector).count() > 0:
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def _enable_tiktok_content_disclosure(scope, platform_name):
@@ -425,64 +486,47 @@ def post_to_socialbee_multiple(caption, image_urls, filenames, category, schedul
 
                 page.screenshot(path=os.path.join(_ss_dir, "02_after_tiktok_added.png"))
 
-                # Check each variation: click it, screenshot, check editor + media
+                # Fill each variation using scoped helpers so checks/uploads
+                # target the active variation, not the first one on the page.
                 page.wait_for_timeout(2000)
                 try:
                     rows = page.locator("[ng-click*='activateVariant']").all()
-                    print(f"  Found {len(rows)} variation(s), checking each...")
-                    for i, row in enumerate(rows):
-                        row.click()
-                        page.wait_for_timeout(3000)
-                        page.screenshot(path=os.path.join(_ss_dir, f"03_variation_{i}_clicked.png"))
-
-                        # Check if editor has content
-                        var_editor = page.locator(".ql-editor").first
-                        var_editor.wait_for(state="visible", timeout=5000)
-                        editor_text = (var_editor.inner_text() or "").strip()
-                        editor_html = (var_editor.inner_html() or "").strip()
-
-                        # Check if "Add a photo or video" is visible — means NO media attached
-                        add_photo_btn = page.locator("text=Add a photo or video").first
-                        no_media = False
+                    variant_count = len(rows)
+                    print(f"  Found {variant_count} variation(s), filling each (scoped)...")
+                    _video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'}
+                    is_video_post = any(
+                        os.path.splitext(p)[1].lower() in _video_exts for p in local_paths
+                    )
+                    for i in range(variant_count):
+                        platform_label = f"var{i}"
                         try:
-                            no_media = add_photo_btn.is_visible(timeout=2000)
-                        except Exception:
-                            no_media = False
-                        has_media = not no_media
+                            _ensure_variation_caption_and_media(
+                                page,
+                                i,
+                                platform_label,
+                                caption,
+                                local_paths,
+                                screenshot_dir=_ss_dir,
+                            )
+                        except Exception as ve:
+                            print(f"  Variation [{i}] fill failed: {ve}")
 
-                        print(f"  Variation [{i}]: editor_text={len(editor_text)} chars, has_media={has_media} (add_photo_visible={no_media})")
-
-                        if not editor_text:
-                            print(f"  Variation [{i}] — filling caption...")
-                            var_editor.click()
-                            page.wait_for_timeout(300)
-                            var_editor.fill(caption)
-                            page.wait_for_timeout(500)
-                            page.screenshot(path=os.path.join(_ss_dir, f"04_variation_{i}_caption_filled.png"))
-
-                        if not has_media:
-                            print(f"  Variation [{i}] — uploading files...")
-                            page.locator("input[type='file']").first.set_input_files(local_paths)
-                            page.wait_for_timeout(10000)
-                            page.screenshot(path=os.path.join(_ss_dir, f"05_variation_{i}_files_uploaded.png"))
-                        else:
-                            print(f"  Variation [{i}] — media already present, skipping upload")
-
-                        # If video files, switch post type to "Reel"
-                        _video_exts = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'}
-                        is_video_post = any(
-                            os.path.splitext(p)[1].lower() in _video_exts for p in local_paths
-                        )
                         if is_video_post:
-                            _set_variation_post_type(page, "Reel", _ss_dir, f"variation_{i}")
+                            try:
+                                _set_variation_post_type(page, "Reel", _ss_dir, f"variation_{i}")
+                            except Exception as re:
+                                print(f"  Variation [{i}] post-type switch failed: {re}")
 
-                    # Click back to Facebook variation (first row) to clear warning icon
-                    if len(rows) > 0:
-                        print("  Clicking back to Facebook variation...")
-                        rows[0].click()
-                        page.wait_for_timeout(5000)
-                        page.screenshot(path=os.path.join(_ss_dir, "06_back_to_facebook.png"))
-                        print("  Facebook variation active (warning should clear)")
+                    # Re-activate first variation (typically Facebook) to clear
+                    # any aggregate warning indicator before saving.
+                    if variant_count > 0:
+                        try:
+                            _activate_variation(page, 0, "var0", screenshot_dir=_ss_dir)
+                            page.wait_for_timeout(5000)
+                            page.screenshot(path=os.path.join(_ss_dir, "06_back_to_facebook.png"))
+                            print("  First variation (Facebook) re-activated after fills")
+                        except Exception as ae:
+                            print(f"  Could not re-activate variation 0: {ae}")
                 except Exception as e2:
                     print(f"  Variation fill error: {e2}")
                     page.screenshot(path=os.path.join(_ss_dir, "error_variation.png"))
@@ -765,37 +809,33 @@ def post_to_socialbee(caption, image_url, filename, category, schedule_date, sch
                 except Exception:
                     pass
 
-                # Fill each variation: click it, check editor, fill if empty
+                # Fill each variation using scoped helpers so checks/uploads
+                # target the active variation, not the first one on the page.
                 page.wait_for_timeout(2000)
                 try:
                     rows = page.locator("[ng-click*='activateVariant']").all()
-                    print(f"  Found {len(rows)} variation(s), checking each...")
-                    for i, row in enumerate(rows):
-                        row.click()
-                        page.wait_for_timeout(3000)
+                    variant_count = len(rows)
+                    print(f"  Found {variant_count} variation(s), filling each (scoped)...")
+                    for i in range(variant_count):
+                        platform_label = f"var{i}"
+                        try:
+                            _ensure_variation_caption_and_media(
+                                page,
+                                i,
+                                platform_label,
+                                caption,
+                                upload_path,
+                            )
+                        except Exception as ve:
+                            print(f"  Variation [{i}] fill failed: {ve}")
 
-                        # Check if editor has content
-                        var_editor = page.locator(".ql-editor").first
-                        var_editor.wait_for(state="visible", timeout=5000)
-                        editor_text = (var_editor.inner_text() or "").strip()
-
-                        # Check if files are uploaded
-                        media_previews = page.locator(".post-media-item, .media-preview-item, .uploaded-media img, .post-media img, .media-item").all()
-                        has_media = len(media_previews) > 0
-
-                        if not editor_text or not has_media:
-                            print(f"  Variation [{i}] missing content (text={bool(editor_text)}, media={has_media}) â€” filling...")
-                            if not editor_text:
-                                var_editor.click()
-                                page.wait_for_timeout(300)
-                                var_editor.fill(caption)
-                                page.wait_for_timeout(500)
-                            if not has_media:
-                                page.locator("input[type='file']").first.set_input_files(upload_path)
-                                page.wait_for_timeout(5000)
-                            print(f"  Variation [{i}] filled!")
-                        else:
-                            print(f"  Variation [{i}] OK (has text + media)")
+                    # Re-activate first variation (typically Facebook) to clear
+                    # any aggregate warning indicator before saving.
+                    if variant_count > 0:
+                        try:
+                            _activate_variation(page, 0, "var0")
+                        except Exception as ae:
+                            print(f"  Could not re-activate variation 0: {ae}")
                 except Exception as e2:
                     print(f"  Variation fill error: {e2}")
             except Exception as e:
