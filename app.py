@@ -20,6 +20,7 @@ from src.config import (
     APP_SOURCES, APP_FIELD_OPTIONS, PAIRED_FIELD_OPTIONS, TRIPLE_FIELD_OPTIONS,
     ZOHO_FETCH_OPTIONS, VIDEO_EXTENSIONS, ZOHO_FIELD_FOLDER_MAP, ZOHO_STATUS_FOLDER_MAP,
     COLLECTION_CATEGORY_FIELD, TIPS_EDU_FIELD, QUOTES_PHOTOS_FIELD,
+    BLENDED_IMAGE_LOCAL_FIELD,
     KIE_API_KEY, KIE_API_BASE_URL, KIE_CALLBACK_URL, KIE_VOICE_ID, KIE_STABILITY,
     KIE_POLL_TIMEOUT_SECONDS, KIE_POLL_INTERVAL_SECONDS,
 )
@@ -79,14 +80,31 @@ _tips_reel_uploads_lock = threading.Lock()
 _eel_lock = threading.Lock()
 
 
-_LOCAL_UPLOAD_FIELDS = (COLLECTION_CATEGORY_FIELD, TIPS_EDU_FIELD, QUOTES_PHOTOS_FIELD)
+_LOCAL_UPLOAD_FIELDS = (
+    COLLECTION_CATEGORY_FIELD,
+    TIPS_EDU_FIELD,
+    QUOTES_PHOTOS_FIELD,
+    BLENDED_IMAGE_LOCAL_FIELD,
+)
 _LOCAL_UPLOAD_FIELD_DIRS = {
     COLLECTION_CATEGORY_FIELD: "collection-category",
     TIPS_EDU_FIELD: "tips-and-education",
     QUOTES_PHOTOS_FIELD: "quotes-photos",
+    BLENDED_IMAGE_LOCAL_FIELD: "blended-image-local",
 }
 _TIPS_REEL_VISUAL_FIELDS = ("Blended Image", "Styled Photo", "Moodboard Image")
 _TIPS_REEL_COMBO_TYPE = "tips_combo"
+
+# Categories that show BOTH Airtable-fetched media AND user-uploaded local items
+# in the same lane. Local uploads here must be appended to the fetched session
+# rather than replacing it.
+_COMBINED_LOCAL_UPLOAD_CATEGORIES = frozenset({"blended-image"})
+
+
+def _is_combined_local_upload_session(session_id):
+    """Return True when the session is for a category that mixes fetch + local uploads."""
+    category_id = _category_id_from_session_id(session_id)
+    return category_id in _COMBINED_LOCAL_UPLOAD_CATEGORIES
 
 os.makedirs(_local_upload_root, exist_ok=True)
 os.makedirs(_tips_reel_root, exist_ok=True)
@@ -1466,7 +1484,20 @@ def get_local_uploads(source_field=None, session_id=None):
     source_field = _normalize_local_source_field(source_field)
     items = _list_local_upload_items(source_field)
     if session_id:
-        _set_local_session_items(source_field, session_id, items)
+        if _is_combined_local_upload_session(session_id):
+            existing_session = _get_fetch_session(session_id)
+            existing_upload_ids = set()
+            if existing_session:
+                existing_upload_ids = {
+                    img.get("upload_id")
+                    for img in (existing_session.get("images") or [])
+                    if img.get("upload_id")
+                }
+            new_items = [item for item in items if item.get("upload_id") not in existing_upload_ids]
+            if new_items and existing_session:
+                _append_fetch_session_images(session_id, new_items)
+        else:
+            _set_local_session_items(source_field, session_id, items)
     return _serialize_images(items)
 
 
@@ -1502,7 +1533,16 @@ def delete_local_upload(upload_id, source_field=None, session_id=None):
 
     items = _list_local_upload_items(source_field)
     if session_id:
-        _set_local_session_items(source_field, session_id, items)
+        if _is_combined_local_upload_session(session_id):
+            existing_session = _get_fetch_session(session_id)
+            if existing_session:
+                kept_images = [
+                    img for img in (existing_session.get("images") or [])
+                    if not (img.get("local_upload") and img.get("source_field") == source_field)
+                ]
+                _update_fetch_session_images(session_id, kept_images + items)
+        else:
+            _set_local_session_items(source_field, session_id, items)
     return {"ok": True, "images": _serialize_images(items)}
 
 
@@ -1553,7 +1593,23 @@ def local_upload_photo():
     item = _build_local_upload_item_from_entry(entry)
     items = _list_local_upload_items(source_field)
     if session_id:
-        _set_local_session_items(source_field, session_id, items)
+        if _is_combined_local_upload_session(session_id):
+            existing_session = _get_fetch_session(session_id)
+            if existing_session:
+                _append_fetch_session_images(session_id, [item])
+            else:
+                _set_fetch_session(session_id, {
+                    "images": [item],
+                    "base_id": None,
+                    "cache_key": f"upload:{_category_id_from_session_id(session_id) or 'blended-image'}",
+                    "field_name": None,
+                    "paired_fields": None,
+                    "triple_fields": None,
+                    "zoho_folder_id": None,
+                    "category_id": _category_id_from_session_id(session_id),
+                })
+        else:
+            _set_local_session_items(source_field, session_id, items)
     else:
         with _images_lock:
             _images[:] = items
@@ -1995,6 +2051,8 @@ def get_item_names_for_index(index):
             return "Tips and Education upload"
         if field_name == QUOTES_PHOTOS_FIELD:
             return "Quotes Photos upload"
+        if field_name == BLENDED_IMAGE_LOCAL_FIELD:
+            return "Blended Image upload"
         return "Collection Category upload"
     fields = _images[index].get("fields", {})
     return get_item_names(fields)
