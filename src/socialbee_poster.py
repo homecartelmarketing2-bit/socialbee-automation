@@ -30,6 +30,59 @@ def _prepare_upload_file(url, filename, existing_local_path=None):
     return download_image(url, filename), True
 
 
+class SocialBeeLoginRequired(Exception):
+    """Raised when the saved browser session is not logged in to SocialBee."""
+    pass
+
+
+# Hosts SocialBee redirects to when the session has expired / is logged out.
+_LOGIN_URL_MARKERS = ("login.webpros.com", "/auth/login", "/login", "accounts.socialbee", "oauth2/auth")
+
+
+def _ensure_logged_in(page):
+    """Verify we landed on the SocialBee app, not a login page.
+
+    SocialBee redirects logged-out sessions to the WebPros login page, where the
+    'Create post' button never appears. Without this check the poster just waits
+    10s and dies with a confusing Locator.wait_for timeout. Detect the login
+    redirect early and raise a clear, actionable error instead.
+    """
+    try:
+        current_url = (page.url or "").lower()
+    except Exception:
+        current_url = ""
+
+    on_login_page = any(marker in current_url for marker in _LOGIN_URL_MARKERS)
+
+    if not on_login_page:
+        # Double-check the app actually rendered: the 'Create post' button should
+        # be present (even if not yet visible) on a logged-in poster page.
+        try:
+            has_create = page.locator("button:has-text('Create post')").count() > 0
+        except Exception:
+            has_create = False
+        if has_create:
+            return  # logged in, all good
+
+        # Some login flows show a sign-in form without changing the URL marker.
+        try:
+            has_login_form = (
+                page.locator("input[type='password']").count() > 0
+                or page.locator("button:has-text('Log in')").count() > 0
+                or page.locator("button:has-text('Sign in')").count() > 0
+            )
+        except Exception:
+            has_login_form = False
+        if not has_login_form:
+            return  # can't tell it's a login page; let the normal flow proceed
+
+    raise SocialBeeLoginRequired(
+        "You're not logged in to SocialBee, so posting can't continue. "
+        "Click 'Setup SocialBee Login', sign in to SocialBee in the browser window "
+        "that opens, then close it and try posting again."
+    )
+
+
 def _wait_for_save_confirmation(page):
     """Wait 60 seconds after saving to let SocialBee finish processing."""
     print("  Waiting 60 seconds for SocialBee to finish processing...")
@@ -394,6 +447,9 @@ def post_to_socialbee_multiple(caption, image_urls, filenames, category, schedul
                 pass  # page load timeout is OK, wait_for_timeout below covers it
             page.wait_for_timeout(3000)
 
+            # Bail out early with a clear message if the session is logged out.
+            _ensure_logged_in(page)
+
             print("[4/8] Clicking 'Create post'...")
             create_btn = page.locator("button:has-text('Create post')").first
             create_btn.wait_for(state="visible", timeout=10000)
@@ -722,6 +778,9 @@ def post_to_socialbee(caption, image_url, filename, category, schedule_date, sch
             except Exception:
                 pass  # page load timeout is OK, wait_for_timeout below covers it
             page.wait_for_timeout(3000)
+
+            # Bail out early with a clear message if the session is logged out.
+            _ensure_logged_in(page)
 
             # 1. Click "Create post"
             print("[4/8] Clicking 'Create post'...")
@@ -1107,6 +1166,9 @@ def post_to_socialbee_story(caption, image_url, filename, category, schedule_dat
             except Exception:
                 pass  # page load timeout is OK, wait_for_timeout below covers it
             page.wait_for_timeout(3000)
+
+            # Bail out early with a clear message if the session is logged out.
+            _ensure_logged_in(page)
 
             print("[4/8] Clicking 'Create post'...")
             create_btn = page.locator("button:has-text('Create post')").first

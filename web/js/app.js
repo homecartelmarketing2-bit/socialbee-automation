@@ -154,6 +154,7 @@ const state = {
   nextSessionSeq: 0,
   previewOpen: false,
   posting: false,
+  settingUpLogin: false,
   postContext: null,
   generatingCaption: false,
   runtimeInfo: {
@@ -2552,6 +2553,7 @@ async function initApp() {
   });
 
   $("gen-caption-btn").addEventListener("click", onGenerateCaption);
+  $("setup-login-btn").addEventListener("click", onSetupLogin);
   $("post-btn").addEventListener("click", onPost);
   $("post-story-btn").addEventListener("click", onPostStory);
   $("post-now-check").addEventListener("change", toggleSchedule);
@@ -2617,6 +2619,30 @@ async function onGenerateCaption() {
     updateComposerAvailability();
     $("post-status").textContent = `Caption error: ${error.message || error}`;
   }
+}
+
+function onSetupLogin() {
+  if (state.settingUpLogin || state.posting) {
+    return;
+  }
+  state.settingUpLogin = true;
+  $("setup-login-btn").disabled = true;
+  $("setup-login-btn").textContent = "Browser open - log in...";
+  $("setup-status").textContent =
+    "A browser window opened. Log in to SocialBee, then close that window. Your session will be saved.";
+  if (eelFunctionAvailable("setup_chrome_post")) {
+    eel.setup_chrome_post();
+  } else {
+    $("setup-status").textContent = "Setup is unavailable in this build.";
+    resetSetupLoginButton();
+  }
+}
+
+function resetSetupLoginButton() {
+  state.settingUpLogin = false;
+  $("setup-login-btn").disabled = false;
+  $("setup-login-btn").textContent = "Setup SocialBee Login";
+  updateComposerAvailability();
 }
 
 function onPost() {
@@ -2926,6 +2952,12 @@ function on_post_story_result(status, message) {
   state.postContext = null;
   $("post-status").textContent = `Error: ${message}`;
   alert(`Error: ${message}`);
+}
+
+eel.expose(on_setup_done);
+function on_setup_done(message) {
+  $("setup-status").textContent = message || "Login saved.";
+  resetSetupLoginButton();
 }
 
 eel.expose(on_posted_marked);
