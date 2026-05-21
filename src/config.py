@@ -131,6 +131,7 @@ TIPS_EDU_SEPARATOR = "── Tips Edu ──"
 TIPS_EDU_FIELD = "Tips Educational Photos"
 QUOTES_PHOTOS_SEPARATOR = "── Quotes Photos ──"
 QUOTES_PHOTOS_FIELD = "Quotes Photos"
+BLENDED_IMAGE_LOCAL_FIELD = "Blended Image Local"
 
 for source_id, raw_options in list(APP_FIELD_OPTIONS.items()):
     options = list(raw_options)

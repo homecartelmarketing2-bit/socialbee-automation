@@ -131,8 +131,9 @@ const CATEGORY_DESCRIPTIONS = {
   "quotes-photos": "Persistent local library for quote photos, staged for quick reuse and posting.",
 };
 
-const FRONTEND_BUILD = "2026-04-29-tips-reels-03";
+const FRONTEND_BUILD = "2026-05-14-blended-drag-drop-01";
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]);
+const BLENDED_IMAGE_LOCAL_FIELD = "Blended Image Local";
 
 const CATEGORY_MAP = new Map(
   CATEGORY_GROUPS.flatMap((group) => group.items.map((item) => [item.id, item])),
@@ -516,6 +517,14 @@ function isVideoUploadCategory(categoryId = state.activeCategory) {
   return categoryId === "styled-reels" || categoryId === "tips-reels";
 }
 
+function isBlendedImageCategory(categoryId = state.activeCategory) {
+  return categoryId === "blended-image";
+}
+
+function categorySupportsLocalDragDrop(categoryId = state.activeCategory) {
+  return isVideoUploadCategory(categoryId) || isBlendedImageCategory(categoryId);
+}
+
 function isTipsReelActionCategory(categoryId = state.activeCategory) {
   return categoryId === "tips-reels";
 }
@@ -749,6 +758,29 @@ function localUploadPanelMarkup(config, lane) {
           <input class="local-upload-input" data-local-input="true" type="file" accept="image/*" multiple>
           <span class="local-upload-title">${isBusy ? "Uploading..." : "Drop Photos"}</span>
           <span class="local-upload-subtitle">Files append to this queue and stay available after restart.</span>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function blendedImageUploadPanelMarkup(lane) {
+  const isBusy = lane.uploadingCount > 0;
+  const helper = isBusy
+    ? `Uploading ${lane.uploadingCount} photo${lane.uploadingCount === 1 ? "" : "s"}...`
+    : "Drag and drop a photo here, or browse from your computer.";
+  return `
+    <section class="local-upload-panel blended-image-upload-panel">
+      <div class="local-upload-copy">
+        <p class="eyebrow">Local Photo</p>
+        <h4>Add Your Own Blended Image</h4>
+        <p>${escapeHtml(helper)}</p>
+      </div>
+      <div class="local-upload-actions">
+        <div class="local-upload-dropzone${isBusy ? " busy" : ""}" data-blended-image-dropzone="true" tabindex="0" role="button" aria-label="Upload photos to Blended Image">
+          <input class="local-upload-input" data-blended-image-input="true" type="file" accept="image/*" multiple>
+          <span class="local-upload-title">${isBusy ? "Uploading..." : "Drop Photos"}</span>
+          <span class="local-upload-subtitle">Image files only. Uploaded photos stay saved for later use.</span>
         </div>
       </div>
     </section>
@@ -1302,10 +1334,12 @@ function renderGallery() {
     return;
   }
 
+  const dragDropPanel = dragDropUploadPanelMarkup(lane);
+  const wireDragDropControls = () => wireDragDropUploadControls(container);
+
   if (lane.fetchError && lane.images.length === 0) {
-    const uploadPanel = isVideoUploadCategory() ? videoUploadPanelMarkup(lane) : "";
     container.innerHTML = `
-      ${uploadPanel}
+      ${dragDropPanel}
       <div class="gallery-error">
         <div>
           <h4>Could not load ${config.label}.</h4>
@@ -1313,36 +1347,38 @@ function renderGallery() {
         </div>
       </div>
     `;
-    if (isVideoUploadCategory()) {
-      wireTipsReelUploadControls(container);
-    }
+    wireDragDropControls();
     return;
   }
 
   if (lane.streaming && lane.images.length === 0) {
-    container.innerHTML = `<div class="gallery-grid">${skeletonMarkup(4)}</div>`;
+    container.innerHTML = `${dragDropPanel}<div class="gallery-grid">${skeletonMarkup(4)}</div>`;
+    wireDragDropControls();
     return;
   }
 
   if (visible.length === 0 && lane.images.length === 0) {
-    const uploadPanel = isVideoUploadCategory() ? videoUploadPanelMarkup(lane) : "";
+    const promptSuffix = isVideoUploadCategory()
+      ? " Upload your own videos above."
+      : isBlendedImageCategory()
+      ? " Drop your own photos above to start a local queue."
+      : "";
     container.innerHTML = `
-      ${uploadPanel}
+      ${dragDropPanel}
       <div class="gallery-empty">
         <div>
           <h4>No items found.</h4>
-          <p>This source did not return any attachments for <strong>${escapeHtml(sourceLabel)}</strong>.${isVideoUploadCategory() ? " Upload your own videos above." : ""}</p>
+          <p>This source did not return any attachments for <strong>${escapeHtml(sourceLabel)}</strong>.${promptSuffix}</p>
         </div>
       </div>
     `;
-    if (isVideoUploadCategory()) {
-      wireTipsReelUploadControls(container);
-    }
+    wireDragDropControls();
     return;
   }
 
   if (visible.length === 0) {
     container.innerHTML = `
+      ${dragDropPanel}
       <div class="gallery-empty">
         <div>
           <h4>No frames match this view.</h4>
@@ -1350,19 +1386,37 @@ function renderGallery() {
         </div>
       </div>
     `;
+    wireDragDropControls();
     return;
   }
 
   const remainder = visible.length % 4;
   const trailingCount = remainder === 0 ? 1 : Math.max(1, 4 - remainder);
   const loadingTail = lane.streaming ? skeletonMarkup(Math.min(3, trailingCount)) : "";
-  const uploadPanel = isVideoUploadCategory() ? videoUploadPanelMarkup(lane) : "";
-  const deleteAllowed = isVideoUploadCategory();
-  container.innerHTML = `${uploadPanel}<div class="gallery-grid">${galleryCardsMarkup(visible, lane, { allowDelete: deleteAllowed })}${loadingTail}</div>`;
+  const deleteAllowed = categorySupportsLocalDragDrop();
+  container.innerHTML = `${dragDropPanel}<div class="gallery-grid">${galleryCardsMarkup(visible, lane, { allowDelete: deleteAllowed })}${loadingTail}</div>`;
 
   wireGalleryInteractions(container, { allowDelete: deleteAllowed });
-  if (isVideoUploadCategory()) {
+  wireDragDropControls();
+}
+
+function dragDropUploadPanelMarkup(lane, categoryId = state.activeCategory) {
+  if (isVideoUploadCategory(categoryId)) {
+    return videoUploadPanelMarkup(lane, categoryId);
+  }
+  if (isBlendedImageCategory(categoryId)) {
+    return blendedImageUploadPanelMarkup(lane);
+  }
+  return "";
+}
+
+function wireDragDropUploadControls(container, categoryId = state.activeCategory) {
+  if (isVideoUploadCategory(categoryId)) {
     wireTipsReelUploadControls(container);
+    return;
+  }
+  if (isBlendedImageCategory(categoryId)) {
+    wireBlendedImageUploadControls(container);
   }
 }
 
@@ -1378,7 +1432,12 @@ function wireGalleryInteractions(container, { allowDelete = false } = {}) {
       openPreview(index);
     });
     button.addEventListener("contextmenu", (event) => {
-      if ((allowDelete && !isTipsReelCategory()) || isLocalUploadCategory()) {
+      const img = currentCategoryState().images[index];
+      if (img && img.local_upload) {
+        selectPostTarget(index, event);
+        return;
+      }
+      if ((allowDelete && !isTipsReelCategory() && !isBlendedImageCategory()) || isLocalUploadCategory()) {
         selectPostTarget(index, event);
         return;
       }
@@ -1483,6 +1542,46 @@ function wireTipsReelUploadControls(container) {
   });
   input.addEventListener("change", () => {
     uploadTipsReelVideos(Array.from(input.files || []));
+    input.value = "";
+  });
+}
+
+function wireBlendedImageUploadControls(container) {
+  const dropzone = container.querySelector("[data-blended-image-dropzone]");
+  const input = container.querySelector("[data-blended-image-input]");
+  if (!dropzone || !input) {
+    return;
+  }
+
+  const openPicker = () => {
+    if (state.posting) {
+      $("post-status").textContent = "Wait for the current post to finish before uploading more photos.";
+      return;
+    }
+    input.click();
+  };
+
+  dropzone.addEventListener("click", () => openPicker());
+  dropzone.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openPicker();
+    }
+  });
+  dropzone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropzone.classList.add("dragging");
+  });
+  dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("dragging");
+  });
+  dropzone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropzone.classList.remove("dragging");
+    uploadBlendedImageFiles(Array.from(event.dataTransfer ? event.dataTransfer.files || [] : []));
+  });
+  input.addEventListener("change", () => {
+    uploadBlendedImageFiles(Array.from(input.files || []));
     input.value = "";
   });
 }
@@ -2339,6 +2438,7 @@ async function startCategoryFetch(categoryId = state.activeCategory, { preserveI
       lane.fetchError = "No Airtable source is configured.";
       lane.streaming = false;
       lane.preserveVisible = false;
+      await maybeMergeLocalUploadsForCombinedCategory(categoryId);
       if (state.activeCategory === categoryId) {
         renderAll();
       } else {
@@ -2360,11 +2460,18 @@ async function startCategoryFetch(categoryId = state.activeCategory, { preserveI
     lane.streaming = false;
     lane.preserveVisible = false;
     lane.fetchError = error.message || String(error);
+    await maybeMergeLocalUploadsForCombinedCategory(categoryId);
     if (state.activeCategory === categoryId) {
       renderAll();
     } else {
       renderSidebar();
     }
+  }
+}
+
+async function maybeMergeLocalUploadsForCombinedCategory(categoryId) {
+  if (isBlendedImageCategory(categoryId)) {
+    await mergeBlendedImageUploadsIntoLane(categoryId);
   }
 }
 
@@ -2803,6 +2910,19 @@ function on_images_loaded(images, sessionId) {
     return;
   }
 
+  if (isBlendedImageCategory(categoryId)) {
+    mergeBlendedImageUploadsIntoLane(categoryId).then(() => {
+      if (state.activeCategory === categoryId) {
+        ensureSelection();
+        syncPreviewAfterVisibilityChange();
+        renderAll();
+      } else {
+        renderSidebar();
+      }
+    });
+    return;
+  }
+
   if (state.activeCategory === categoryId) {
     ensureSelection();
     syncPreviewAfterVisibilityChange();
@@ -2828,6 +2948,18 @@ function on_fetch_error(message, sessionId) {
   lane.fetchError = message;
   lane.fetchDone = 0;
   lane.fetchTotal = 0;
+
+  if (isBlendedImageCategory(categoryId)) {
+    mergeBlendedImageUploadsIntoLane(categoryId).then(() => {
+      if (state.activeCategory === categoryId) {
+        syncPreviewAfterVisibilityChange();
+        renderAll();
+      } else {
+        renderSidebar();
+      }
+    });
+    return;
+  }
 
   if (state.activeCategory === categoryId) {
     syncPreviewAfterVisibilityChange();
@@ -3076,12 +3208,24 @@ async function onDeleteLocalUpload(uploadId, index, event) {
 
   const config = activeCategoryConfig();
   const lane = currentCategoryState();
+  const targetImg = lane.images[index];
+  const sourceField =
+    (targetImg && targetImg.source_field)
+    || (config && config.localSourceField)
+    || (isBlendedImageCategory() ? BLENDED_IMAGE_LOCAL_FIELD : null);
   try {
-    const result = await eel.delete_local_upload(uploadId, config.localSourceField, lane.sessionId)();
+    const result = await eel.delete_local_upload(uploadId, sourceField, lane.sessionId)();
     if (!result || !result.ok) {
       throw new Error((result && result.error) || "Delete failed.");
     }
-    reconcileLaneImages(lane, result.images || []);
+    if (config && config.localSourceField) {
+      reconcileLaneImages(lane, result.images || []);
+    } else {
+      const otherImages = lane.images.filter(
+        (item) => !(item.local_upload && item.source_field === sourceField),
+      );
+      reconcileLaneImages(lane, [...otherImages, ...(result.images || [])]);
+    }
     if (lane.currentIndex === index && itemMatchesFilter(lane.images[index]) === false) {
       lane.currentIndex = null;
     }
@@ -3156,6 +3300,83 @@ async function uploadTipsReelVideos(files, categoryId = state.activeCategory) {
         renderSidebar();
       }
     }
+  }
+}
+
+async function uploadBlendedImageFiles(files, categoryId = "blended-image") {
+  const imageFiles = (files || []).filter((file) => file && String(file.type || "").startsWith("image/"));
+  if (imageFiles.length === 0) {
+    $("post-status").textContent = "Only image files can be uploaded here.";
+    return;
+  }
+
+  const lane = getCategoryState(categoryId);
+  if (!lane.sessionId) {
+    lane.sessionId = createSessionId(categoryId);
+  }
+
+  lane.uploadingCount += imageFiles.length;
+  lane.hasLoadedOnce = true;
+  lane.loadedSessionId = lane.sessionId;
+  if (state.activeCategory === categoryId) {
+    renderAll();
+  } else {
+    renderSidebar();
+  }
+
+  for (const file of imageFiles) {
+    const formData = new FormData();
+    formData.append("photo", file);
+    formData.append("source_field", BLENDED_IMAGE_LOCAL_FIELD);
+    formData.append("session_id", lane.sessionId);
+
+    try {
+      const response = await fetch("/local_upload_photo", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Upload failed.");
+      }
+
+      if (payload.item) {
+        lane.images.push(payload.item);
+      }
+      lane.fetchError = "";
+      lane.currentIndex = lane.images.length > 0 ? lane.images.length - 1 : null;
+      lane.previewIndex = null;
+      $("post-status").textContent = `${file.name} added to Blended Image.`;
+    } catch (error) {
+      lane.fetchError = error.message || String(error);
+      $("post-status").textContent = `Upload error: ${lane.fetchError}`;
+      alert(`Upload error: ${lane.fetchError}`);
+    } finally {
+      lane.uploadingCount = Math.max(0, lane.uploadingCount - 1);
+      if (state.activeCategory === categoryId) {
+        ensureSelection();
+        syncPreviewAfterVisibilityChange();
+        renderAll();
+      } else {
+        renderSidebar();
+      }
+    }
+  }
+}
+
+async function mergeBlendedImageUploadsIntoLane(categoryId = "blended-image") {
+  try {
+    const lane = getCategoryState(categoryId);
+    const uploads = await eel.get_local_uploads(BLENDED_IMAGE_LOCAL_FIELD, lane.sessionId)();
+    if (uploads && uploads.length > 0) {
+      const existingKeys = new Set(lane.images.map((img) => getImageKey(img)));
+      const newItems = uploads.filter((img) => !existingKeys.has(getImageKey(img)));
+      if (newItems.length > 0) {
+        lane.images.push(...newItems);
+      }
+    }
+  } catch (error) {
+    console.warn("Could not load blended image uploads:", error);
   }
 }
 
