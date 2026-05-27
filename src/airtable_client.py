@@ -39,6 +39,47 @@ class _RateLimiter:
 _rate_limiter = _RateLimiter(max_per_second=4)
 
 
+# ─── Attachment helpers ────────────────────────────────────────
+
+BLENDED_IMAGE_FIELD = "Blended Image"
+_WATERMARK_MARKER = "_watermarked"
+
+
+def _is_watermarked_attachment(att):
+    if not isinstance(att, dict):
+        return False
+    name = (att.get("filename") or "").lower()
+    return _WATERMARK_MARKER in name
+
+
+def _filter_watermarked_only(attachments):
+    """Drop non-watermarked attachments and dedupe identical watermarked ones.
+
+    Records in Airtable's ``Blended Image`` field can hold the original
+    upload plus one or more ``*_watermarked.jpg`` versions. Without
+    filtering we render the same record 2-3 times in the gallery. When at
+    least one attachment is watermarked, keep only the watermarked entries
+    and dedupe duplicates that share the same byte size (the watermarker
+    sometimes uploads both ``{record}_watermarked.jpg`` and
+    ``{table}_{record}_watermarked.jpg`` for the same image).
+    """
+    if not isinstance(attachments, list):
+        return attachments
+    watermarked = [att for att in attachments if _is_watermarked_attachment(att)]
+    if not watermarked:
+        return attachments
+    seen = set()
+    deduped = []
+    for att in watermarked:
+        size = att.get("size")
+        key = size if size else att.get("id") or att.get("url")
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(att)
+    return deduped
+
+
 # ─── Cache helpers ─────────────────────────────────────────────
 
 def _cache_path(base_id, field_key):
@@ -233,6 +274,8 @@ def fetch_all_records_for_base(base_id, progress_callback=None, field_name=None,
             attachments = fields.get(use_field, [])
             if not isinstance(attachments, list):
                 continue
+            if use_field == BLENDED_IMAGE_FIELD:
+                attachments = _filter_watermarked_only(attachments)
             for att in attachments:
                 if not isinstance(att, dict):
                     continue
@@ -328,6 +371,10 @@ def fetch_paired_records_for_base(base_id, field1, field2, progress_callback=Non
             fields = rec.get("fields", {})
             att1 = fields.get(field1, [])
             att2 = fields.get(field2, [])
+            if field1 == BLENDED_IMAGE_FIELD and isinstance(att1, list):
+                att1 = _filter_watermarked_only(att1)
+            if field2 == BLENDED_IMAGE_FIELD and isinstance(att2, list):
+                att2 = _filter_watermarked_only(att2)
             if not att1 or not att2:
                 continue
             img1 = att1[0] if isinstance(att1, list) else None
@@ -414,6 +461,12 @@ def fetch_triple_records_for_base(base_id, field1, field2, field3, progress_call
             att1 = fields.get(field1, [])
             att2 = fields.get(field2, [])
             att3 = fields.get(field3, [])
+            if field1 == BLENDED_IMAGE_FIELD and isinstance(att1, list):
+                att1 = _filter_watermarked_only(att1)
+            if field2 == BLENDED_IMAGE_FIELD and isinstance(att2, list):
+                att2 = _filter_watermarked_only(att2)
+            if field3 == BLENDED_IMAGE_FIELD and isinstance(att3, list):
+                att3 = _filter_watermarked_only(att3)
             if not att1 or not att2 or not att3:
                 continue
             img1 = att1[0] if isinstance(att1, list) else None
@@ -590,6 +643,8 @@ def extract_images(records):
         attachments = fields.get(AIRTABLE_FIELD_NAME, [])
         if not attachments:
             continue
+        if AIRTABLE_FIELD_NAME == BLENDED_IMAGE_FIELD and isinstance(attachments, list):
+            attachments = _filter_watermarked_only(attachments)
         for att in attachments:
             url = att.get("url")
             filename = att.get("filename", "unknown")
